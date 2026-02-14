@@ -1,0 +1,1 @@
+export type ICCProfile = { label: string; value: string };
