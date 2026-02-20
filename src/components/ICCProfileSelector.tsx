@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import type { ICCProfile } from "../types/types";
 
 interface ICCProfileSelectorProps {
-  selectedICCProfile: string;
+  selectedICCProfileName: string;
   handleChange: any;
   availableICCProfiles: ICCProfile[];
 }
@@ -15,7 +15,7 @@ export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
   const itemsToRender = useMemo(() => createListCollection({items: props.availableICCProfiles}), [props.availableICCProfiles])
   
   return (
-    <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={[props.selectedICCProfile]} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
+    <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={[props.selectedICCProfileName]} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
       <Select.Label>Select ICC Profile</Select.Label>
       <Select.Control>
         <Select.Trigger border={"1px solid grey"}>
