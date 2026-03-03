@@ -12,7 +12,6 @@ export class LcmsService {
         return wasmFileURI; //this is needed specifically for vite so the wrapper works
       },
     });
-    console.log(this.lcms);
   }
 
   createSRGBProfile(): number {
@@ -75,7 +74,7 @@ export class LcmsService {
       flags,
     );
 
-    if (!xform) throw new Error("Could not create proofing transform");
+    //if (!xform) throw new Error("Could not create proofing transform");
     return xform;
   }
 
@@ -83,7 +82,7 @@ export class LcmsService {
     transform: number,
     input: Uint8Array | Uint16Array | Float32Array,
     pixelCount: number,
-  ) {
+  ) { 
     return this.lcms.cmsDoTransform(transform, input, pixelCount);
   }
 

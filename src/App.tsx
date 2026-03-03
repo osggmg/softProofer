@@ -18,7 +18,7 @@ export function App() {
     };
   }, []);
 
-  if (!lcmsReady) return null;
+  if (!lcmsReady) return null; //add a spinner here or something, altho it loads pretty fast
   
   return (
     <>

@@ -9,28 +9,26 @@ function getSRGB() {
 }
 
 export const doSoftProof = (
-  printerProfile: Uint8Array | number,
+  printerProfile: Uint8Array,
   inputRgb: Uint8Array,
   width: number,
   height: number,
 ) => {
-  const openedHere = printerProfile instanceof Uint8Array;
-  const hPrinter = openedHere ? lcms.openProfileFromBytes(printerProfile) : printerProfile;
+  const hPrinterProfile = lcms.openProfileFromBytes(printerProfile); //h means handle
 
   const xform = lcms.createProofingTransform({
     inputProfile: getSRGB(),
     outputProfile: getSRGB(),
-    proofingProfile: hPrinter,
+    proofingProfile: hPrinterProfile,
     intent: 0,
     proofingIntent: 1,
     flags: LcmsService.FLAGS.SOFTPROOFING,
   });
 
   const outRgb = lcms.doTransform(xform, inputRgb, width * height);
-  console.log("transformDone")
 
   lcms.deleteTransform(xform);
-  if (openedHere) lcms.closeProfile(hPrinter);
+  lcms.closeProfile(hPrinterProfile);
 
   return outRgb;
 };

@@ -1,4 +1,4 @@
-import { Box, Button, FileUpload, Flex } from "@chakra-ui/react";
+import { Button, FileUpload, Flex } from "@chakra-ui/react";
 import { HiUpload } from "react-icons/hi";
 
 interface ICCProfileUploaderProps {
@@ -21,9 +21,9 @@ export const ICCProfileUploader = (props: ICCProfileUploaderProps) => {
             <HiUpload /> Upload profile
           </Button>
         </FileUpload.Trigger>
-        <Box mt={3} borderRadius={10}>
+        {/* <Box mt={3} borderRadius={10}>
           <FileUpload.List />
-        </Box>
+        </Box> */}
       </Flex>
     </FileUpload.Root>
   );

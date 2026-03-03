@@ -19,7 +19,7 @@ export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
       <Select.Label>Select ICC Profile</Select.Label>
       <Select.Control>
         <Select.Trigger border={"1px solid grey"}>
-          <Select.ValueText placeholder="Select framework" />
+          <Select.ValueText />
         </Select.Trigger>
         <Select.IndicatorGroup>
           <Select.Indicator />
