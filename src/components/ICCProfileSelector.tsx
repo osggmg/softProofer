@@ -4,15 +4,22 @@ import type { ICCProfile } from "../types/types";
 
 interface ICCProfileSelectorProps {
   selectedICCProfileName: string;
-  handleChange: any;
+  handleChange: (value: string) => void;
   availableICCProfiles: ICCProfile[];
 }
 
 
-
 export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
-
-  const itemsToRender = useMemo(() => createListCollection({items: props.availableICCProfiles}), [props.availableICCProfiles])
+  const itemsToRender = useMemo(
+    () =>
+      createListCollection({
+        items: props.availableICCProfiles.map((profile) => ({
+          label: profile.label,
+          value: profile.label,
+        })),
+      }),
+    [props.availableICCProfiles],
+  );
   
   return (
     <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={[props.selectedICCProfileName]} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
@@ -28,7 +35,7 @@ export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
       <Portal>
         <Select.Positioner>
           <Select.Content>
-            {props.availableICCProfiles.map((profile) => (
+            {itemsToRender.items.map((profile) => (
               <Select.Item item={profile} key={profile.value}>
                 {profile.label}
                 <Select.ItemIndicator />

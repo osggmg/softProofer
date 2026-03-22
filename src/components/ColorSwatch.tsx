@@ -1,30 +1,51 @@
-import { SimpleGrid } from "@chakra-ui/react";
-import { doSoftProof } from "../profile_transformations/profileTransformations";
+import { Flex, SimpleGrid, Text } from "@chakra-ui/react";
+import {
+  CMYKtoLAB,
+  doRGBSoftProof,
+} from "../profile_transformations/profileTransformations";
 import { flatRgbToStrings } from "../utils/utils";
-import { colorsInput, colorsInputAsAFlatMapU8Arr } from "../utils/constants";
+import {
+  CMYKColorSpace,
+  colorsInput,
+  colorsInputAsAFlatMapU16Arr,
+  colorsInputAsAFlatMapU8Arr,
+  RGBColorSpace,
+} from "../utils/constants";
 import { useMemo } from "react";
+import { lcms } from "../profile_transformations/lcmsSingleton";
 
 interface ColorSwatchProps {
   selectedProfile: Uint8Array | undefined;
 }
 
 export const ColorSwatch = (props: ColorSwatchProps) => {
+  const profileColorSpace =
+    props.selectedProfile &&
+    lcms.getColorSpace(lcms.openProfileFromBytes(props.selectedProfile));
 
   const colorsOutput = useMemo(() => {
-    if (props.selectedProfile === undefined) 
-      {
-        console.log("selectedProfile is undefined")
-        return colorsInput;
-      }
+    if (props.selectedProfile === undefined) {
+      console.log("selectedProfile is undefined");
+      return colorsInput;
+    }
 
     try {
-      const out = doSoftProof(
-        props.selectedProfile,
-        colorsInputAsAFlatMapU8Arr,
-        7,
-        3,
-      );
-      return flatRgbToStrings(out);
+      if (profileColorSpace === RGBColorSpace) {
+        const RGBOut = doRGBSoftProof(
+          props.selectedProfile,
+          colorsInputAsAFlatMapU8Arr,
+          7,
+          3,
+        );
+        return flatRgbToStrings(RGBOut);
+      }
+
+      // if (profileColorSpace === CMYKColorSpace) {
+      //   const referenceValuesLAB = CMYKtoLAB(
+      //     colorsInputAsAFlatMapU16Arr,
+      //     props.selectedProfile,
+      //   );
+      // }
     } catch (e) {
       console.error("Softproof error:", e);
       return colorsInput;
@@ -53,6 +74,10 @@ export const ColorSwatch = (props: ColorSwatchProps) => {
               borderBottomRightRadius: 2,
             }}
           />
+          <Flex flexDirection={"column"}>
+            {/* <Text>CMYK: {colorsInput[index]}</Text>
+            <Text>LAB: {colorsOutput[index]}</Text> */}
+          </Flex>
         </div>
       ))}
     </SimpleGrid>

@@ -5,5 +5,6 @@ export const lcms = new LcmsService();
 // create one shared init promise
 export const lcmsReady = (async () => {
   await lcms.init();
+  console.log(lcms)
   return lcms;
 })();

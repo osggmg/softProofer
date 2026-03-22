@@ -1,4 +1,4 @@
-import { instantiate } from "lcms-wasm";
+import  instantiate  from "lcms-wasm";
 import wasmFileURI from "lcms-wasm/dist/lcms.wasm?url";
 
 export type RenderingIntent = 0 | 1 | 2 | 3;
@@ -16,6 +16,28 @@ export class LcmsService {
 
   createSRGBProfile(): number {
     return this.lcms.cmsCreate_sRGBProfile();
+  }
+
+  createLab4Profile(): number {
+    return this.lcms.cmsCreateLab4Profile();
+  }
+
+  createTransform(
+    hInput: number,
+    inputFormat: number,
+    hOutput: number,
+    outputFormat: number,
+    intent: number,
+    flags: number,
+  ): number {
+    return this.lcms.cmsCreateTransform(
+      hInput,
+      inputFormat,
+      hOutput,
+      outputFormat,
+      intent,
+      flags,
+    );
   }
 
   openProfileFromBytes(bytes: Uint8Array): number {
@@ -78,11 +100,15 @@ export class LcmsService {
     return xform;
   }
 
+  getColorSpace(profile: number) {
+    return this.lcms.cmsGetColorSpace(profile);
+  }
+
   doTransform(
     transform: number,
-    input: Uint8Array | Uint16Array | Float32Array,
+    input: Uint8Array | Uint16Array | Float32Array | Float64Array,
     pixelCount: number,
-  ) { 
+  ) {
     return this.lcms.cmsDoTransform(transform, input, pixelCount);
   }
 
@@ -96,6 +122,3 @@ export class LcmsService {
     GAMUTCHECK: 0x1000,
   };
 }
-
-
-
