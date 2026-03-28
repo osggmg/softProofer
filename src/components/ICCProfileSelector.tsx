@@ -22,11 +22,11 @@ export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
   );
   
   return (
-    <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={[props.selectedICCProfileName]} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
+    <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={props.selectedICCProfileName ? [props.selectedICCProfileName] : []} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
       <Select.Label>Select ICC Profile</Select.Label>
       <Select.Control>
         <Select.Trigger border={"1px solid grey"}>
-          <Select.ValueText />
+          <Select.ValueText placeholder="No ICC profile selected"/>
         </Select.Trigger>
         <Select.IndicatorGroup>
           <Select.Indicator />
@@ -37,7 +37,7 @@ export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
           <Select.Content>
             {itemsToRender.items.map((profile) => (
               <Select.Item item={profile} key={profile.value}>
-                {profile.label}
+                <Select.ItemText >{profile.label}</Select.ItemText>
                 <Select.ItemIndicator />
               </Select.Item>
             ))}

@@ -12,7 +12,7 @@ export const ImageUploader = (props: ImageUploader) => {
       onFileChange={(details) => {
         props.handleFileChange(details.acceptedFiles);
       }}
-      accept={".jpeg,.tiff"}
+      accept={".jpeg,.tif,.tiff"}
     >
       <FileUpload.HiddenInput />
       <FileUpload.Label>Upload your image</FileUpload.Label>

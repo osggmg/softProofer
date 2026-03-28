@@ -149,7 +149,6 @@ async function decodeToRGBA16(file: File) {
       const pixels = new Uint16Array(width * height * 4);
 
       image.getPixels(
-        "RGBA",
         pixels
       );
 
