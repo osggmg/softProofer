@@ -87,6 +87,7 @@ export const MainPage = () => {
       setConversionError("");
       setIsConverting(false);
       console.log("[worker success] blob size:", message.blob.size);
+      console.log("[worker success] lab length:", message.lab.length); //here we have the lab (reference lab values to use later)
       const nextUrl = URL.createObjectURL(message.blob);
       setConvertedImageUrl((prevUrl) => {
         if (prevUrl) URL.revokeObjectURL(prevUrl);
@@ -135,8 +136,9 @@ export const MainPage = () => {
         data: selectedImage.data,
         mapping: selectedImage.mapping,
       },
-      profileBytes: selectedICCProfile.bytes,
-      options: { outputFormat: "png", preserveAlpha: true },
+      cmykProfileBytes: selectedICCProfile.bytes,
+      rgbProfileBytes: null, //add monitor profile here if exists
+      options: { outputFormat: "png", preserveAlpha: false }, //preserveAlpha is not usually needed in our workflow. todo: ask henning
     };
 
     conversionWorkerRef.current?.postMessage(request);

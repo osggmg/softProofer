@@ -138,6 +138,7 @@ export const decodeImage = async (
 };
 
 const toRgbaBytes = (image: DecodedImage): Uint8Array => {
+  //this is not accurate for us
   const { data, mapping, width, height } = image;
   const pixelCount = width * height;
 

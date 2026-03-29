@@ -1,5 +1,5 @@
 import { lcmsReady } from "./lcmsSingleton";
-import { doRGBSoftProof } from "./profileTransformations";
+import { CMYKtoLAB, doRGBSoftProof, LABtoRGB } from "./profileTransformations";
 
 export type ConversionOutputFormat = "png";
 
@@ -10,6 +10,7 @@ export interface ConvertImageOptions {
 
 export interface ConvertedImageResult {
   blob: Blob;
+  lab: Uint16Array;
   mimeType: string;
   width: number;
   height: number;
@@ -40,7 +41,9 @@ const cmykToRgb = (
   ];
 };
 
-const extractRgbAndAlpha = (image: ConversionImageAsset): RgbExtractionResult => {
+const extractRgbAndAlpha = (
+  image: ConversionImageAsset,
+): RgbExtractionResult => {
   const { data, mapping, width, height } = image;
   const pixelCount = width * height;
 
@@ -79,7 +82,12 @@ const extractRgbAndAlpha = (image: ConversionImageAsset): RgbExtractionResult =>
     const rgb = new Uint8Array(pixelCount * 3);
 
     for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
-      const [r, g, b] = cmykToRgb(data[i], data[i + 1], data[i + 2], data[i + 3]);
+      const [r, g, b] = cmykToRgb(
+        data[i],
+        data[i + 1],
+        data[i + 2],
+        data[i + 3],
+      );
       rgb[j] = r;
       rgb[j + 1] = g;
       rgb[j + 2] = b;
@@ -93,7 +101,12 @@ const extractRgbAndAlpha = (image: ConversionImageAsset): RgbExtractionResult =>
     const alpha = new Uint8Array(pixelCount);
 
     for (let i = 0, j = 0, k = 0; i < data.length; i += 5, j += 3, k += 1) {
-      const [r, g, b] = cmykToRgb(data[i], data[i + 1], data[i + 2], data[i + 3]);
+      const [r, g, b] = cmykToRgb(
+        data[i],
+        data[i + 1],
+        data[i + 2],
+        data[i + 3],
+      );
       rgb[j] = r;
       rgb[j + 1] = g;
       rgb[j + 2] = b;
@@ -145,9 +158,55 @@ const encodeRgbaToPngBlob = async (
   return canvas.convertToBlob({ type: "image/png" });
 };
 
+function u8to16(src: Uint8Array): Uint16Array {
+  const dst = new Uint16Array(src.length);
+  for (let i = 0; i < src.length; i++) {
+    dst[i] = src[i] * 257; // same as (v << 8) | v
+  }
+  return dst;
+}
+
+const extractCmyk8 = (image: ConversionImageAsset): Uint8Array => {
+  const pixelCount = image.width * image.height;
+
+  if (image.mapping === "CMYK") {
+    const expectedLength = pixelCount * 4;
+    if (image.data.length !== expectedLength) {
+      throw new Error(
+        `Invalid CMYK buffer length: expected ${expectedLength}, got ${image.data.length}`,
+      );
+    }
+    return image.data;
+  }
+
+  if (image.mapping === "CMYKA") {
+    const expectedLength = pixelCount * 5;
+    if (image.data.length !== expectedLength) {
+      throw new Error(
+        `Invalid CMYKA buffer length: expected ${expectedLength}, got ${image.data.length}`,
+      );
+    }
+
+    const cmyk = new Uint8Array(pixelCount * 4);
+    for (let i = 0, j = 0; i < image.data.length; i += 5, j += 4) {
+      cmyk[j] = image.data[i];
+      cmyk[j + 1] = image.data[i + 1];
+      cmyk[j + 2] = image.data[i + 2];
+      cmyk[j + 3] = image.data[i + 3];
+    }
+
+    return cmyk;
+  }
+
+  throw new Error(
+    `CMYK conversion requires CMYK/CMYKA mapping, got ${image.mapping ?? "null"}`,
+  );
+};
+
 export const convertImageAssetWithProfile = async (
   imageAsset: ConversionImageAsset,
-  profileBytes: Uint8Array,
+  cmykProfileBytes: Uint8Array,
+  rgbProfileBytes: Uint8Array | null,
   options: ConvertImageOptions = {},
 ): Promise<ConvertedImageResult> => {
   await lcmsReady;
@@ -159,20 +218,46 @@ export const convertImageAssetWithProfile = async (
     throw new Error(`Unsupported output format: ${outputFormat}`);
   }
 
-  const { rgb, alpha } = extractRgbAndAlpha(imageAsset);
-  const convertedRgb = doRGBSoftProof(
-    profileBytes,
+  //here take cmyk image and profile and convert to lab, store the lab, then convert to rgb with monitor profile
+  const cmyk8 = extractCmyk8(imageAsset);
+  let lab: Uint16Array;
+
+  try {
+    lab = CMYKtoLAB(u8to16(cmyk8), cmykProfileBytes);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `CMYK to Lab failed (mapping=${imageAsset.mapping ?? "null"}, pixels=${imageAsset.width * imageAsset.height}, cmykBytes=${cmyk8.length}): ${message}`,
+    );
+  }
+
+  let rgb: Uint8Array;
+
+  try {
+    rgb = rgbProfileBytes ? LABtoRGB(lab, rgbProfileBytes) : LABtoRGB(lab);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Lab to RGB failed (labValues=${lab.length}, pixels=${imageAsset.width * imageAsset.height}): ${message}`,
+    );
+  }
+  //we need alpha (opacity channel) to encode into png. usually we dont need alpha in such a workflow, but later we can add support for that
+  const rgba = composeRgba(
     rgb,
+    null,
+    imageAsset.width * imageAsset.height,
+    preserveAlpha,
+  );
+
+  const blob = await encodeRgbaToPngBlob(
+    rgba,
     imageAsset.width,
     imageAsset.height,
   );
 
-  const pixelCount = imageAsset.width * imageAsset.height;
-  const rgba = composeRgba(convertedRgb, alpha, pixelCount, preserveAlpha);
-  const blob = await encodeRgbaToPngBlob(rgba, imageAsset.width, imageAsset.height);
-
   return {
     blob,
+    lab,
     mimeType: "image/png",
     width: imageAsset.width,
     height: imageAsset.height,

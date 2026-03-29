@@ -4,7 +4,7 @@ import {
   TYPE_RGB_8,
   INTENT_RELATIVE_COLORIMETRIC,
   TYPE_CMYK_16,
-  TYPE_Lab_DBL,
+  TYPE_Lab_16,
 } from "lcms-wasm";
 
 import {
@@ -21,6 +21,8 @@ function getSRGB() {
 }
 
 let hLAB: number | null = null;
+
+const TRANSFORM_CHUNK_PIXELS = 262144;
 
 function getLAB() {
   if (hLAB === null) hLAB = lcms.createLab4Profile();
@@ -59,7 +61,7 @@ const createCmykToLabTransform = (cmykProfileHandle: number) => {
     cmykProfileHandle,
     TYPE_CMYK_16,
     labProfile,
-    TYPE_Lab_DBL,
+    TYPE_Lab_16,
     INTENT_RELATIVE_COLORIMETRIC,
     0,
   );
@@ -77,7 +79,7 @@ const createLABToRGBTransform = (rgbProfileHandle?: number) => {
 
   const transform = lcms.createTransform(
     labProfile,
-    TYPE_Lab_DBL,
+    TYPE_Lab_16,
     rgbProfile,
     TYPE_RGB_8,
     INTENT_RELATIVE_COLORIMETRIC,
@@ -92,6 +94,12 @@ const createLABToRGBTransform = (rgbProfileHandle?: number) => {
 };
 
 export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
+  if (input.length % 4 !== 0) {
+    throw new Error(
+      `Invalid CMYK input length ${input.length}. Expected 4 channels per pixel.`,
+    );
+  }
+
   const cmykProfileHandle = lcms.openProfileFromBytes(CMYKProfile);
 
   if (!cmykProfileHandle) {
@@ -99,20 +107,57 @@ export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
   }
 
   const transform = createCmykToLabTransform(cmykProfileHandle);
+  const pixelCount = input.length / 4;
 
   try {
-    return lcms.doTransform(transform, input, input.length / 4) as Float64Array;
+    const output = new Uint16Array(pixelCount * 3);
+
+    for (
+      let pixelOffset = 0;
+      pixelOffset < pixelCount;
+      pixelOffset += TRANSFORM_CHUNK_PIXELS
+    ) {
+      const chunkPixels = Math.min(
+        TRANSFORM_CHUNK_PIXELS,
+        pixelCount - pixelOffset,
+      );
+      const inputStart = pixelOffset * 4;
+      const inputEnd = inputStart + chunkPixels * 4;
+      const chunkInput = input.subarray(inputStart, inputEnd);
+
+      const chunkOutput = lcms.doTransform(
+        transform,
+        chunkInput,
+        chunkPixels,
+      ) as Uint16Array;
+
+      if (chunkOutput.length !== chunkPixels * 3) {
+        throw new Error(
+          `CMYK to Lab output length mismatch. Expected ${chunkPixels * 3}, got ${chunkOutput.length}.`,
+        );
+      }
+
+      output.set(chunkOutput, pixelOffset * 3);
+    }
+
+    return output;
   } finally {
     lcms.deleteTransform(transform);
     lcms.closeProfile(cmykProfileHandle);
   }
 };
 
-export const LABtoRGB = (input: Float64Array, RGBProfile?: Uint8Array) => {
+export const LABtoRGB = (input: Uint16Array, RGBProfileBytes?: Uint8Array) => {
+  if (input.length % 3 !== 0) {
+    throw new Error(
+      `Invalid Lab input length ${input.length}. Expected 3 channels per pixel.`,
+    );
+  }
+
   let rgbProfileHandle: number | undefined;
 
-  if (RGBProfile) {
-    rgbProfileHandle = lcms.openProfileFromBytes(RGBProfile);
+  if (RGBProfileBytes) {
+    rgbProfileHandle = lcms.openProfileFromBytes(RGBProfileBytes);
 
     if (!rgbProfileHandle) {
       throw new Error("Could not open RGB profile");
@@ -120,9 +165,40 @@ export const LABtoRGB = (input: Float64Array, RGBProfile?: Uint8Array) => {
   }
 
   const transform = createLABToRGBTransform(rgbProfileHandle);
+  const pixelCount = input.length / 3;
 
   try {
-    return lcms.doTransform(transform, input, input.length / 3) as Uint8Array;
+    const output = new Uint8Array(pixelCount * 3);
+
+    for (
+      let pixelOffset = 0;
+      pixelOffset < pixelCount;
+      pixelOffset += TRANSFORM_CHUNK_PIXELS
+    ) {
+      const chunkPixels = Math.min(
+        TRANSFORM_CHUNK_PIXELS,
+        pixelCount - pixelOffset,
+      );
+      const inputStart = pixelOffset * 3;
+      const inputEnd = inputStart + chunkPixels * 3;
+      const chunkInput = input.subarray(inputStart, inputEnd);
+
+      const chunkOutput = lcms.doTransform(
+        transform,
+        chunkInput,
+        chunkPixels,
+      ) as Uint8Array;
+
+      if (chunkOutput.length !== chunkPixels * 3) {
+        throw new Error(
+          `Lab to RGB output length mismatch. Expected ${chunkPixels * 3}, got ${chunkOutput.length}.`,
+        );
+      }
+
+      output.set(chunkOutput, pixelOffset * 3);
+    }
+
+    return output;
   } finally {
     lcms.deleteTransform(transform);
     if (rgbProfileHandle) {

@@ -7,7 +7,8 @@ export interface ConvertImageWorkerRequest {
   type: "convert";
   requestId: number;
   imageAsset: ConversionImageAsset;
-  profileBytes: Uint8Array;
+  cmykProfileBytes: Uint8Array;
+  rgbProfileBytes: Uint8Array | null;
   options?: ConvertImageOptions;
 }
 
@@ -15,6 +16,7 @@ export interface ConvertImageWorkerSuccess {
   type: "result";
   requestId: number;
   blob: Blob;
+  lab: Uint16Array;
   mimeType: string;
   width: number;
   height: number;

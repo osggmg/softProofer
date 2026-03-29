@@ -18,7 +18,8 @@ self.onmessage = async (event: MessageEvent<ConvertImageWorkerRequest>) => {
   try {
     const result = await convertImageAssetWithProfile(
       message.imageAsset,
-      message.profileBytes,
+      message.cmykProfileBytes,
+      message.rgbProfileBytes,
       message.options,
     );
 
@@ -26,6 +27,7 @@ self.onmessage = async (event: MessageEvent<ConvertImageWorkerRequest>) => {
       type: "result",
       requestId: message.requestId,
       blob: result.blob,
+      lab: result.lab,
       mimeType: result.mimeType,
       width: result.width,
       height: result.height,
