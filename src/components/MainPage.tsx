@@ -1,4 +1,5 @@
 import { Flex, Heading, Text } from "@chakra-ui/react";
+import { Checkbox } from "./../components/ui/checkbox";
 import { ICCProfileUploader } from "./ICCProfileUploader";
 import { ICCProfileSelector } from "./ICCProfileSelector";
 import { useEffect, useRef, useState } from "react";
@@ -54,14 +55,45 @@ export const MainPage = () => {
   const requestCounterRef = useRef(0);
   const activeRequestIdRef = useRef(0);
 
+  const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
+
   // Create the worker once and subscribe to its messages in a single effect.
   // Keeping both in one effect guarantees the worker exists before the listener
   // is attached, and is not terminated mid-cleanup by React Strict Mode.
   const conversionWorkerRef = useRef<Worker | null>(null);
 
+  const selectedICCProfile = availableICCProfiles.find(
+    (p) => p.label === selectedICCProfileName,
+  );
+
+  const selectedImage =
+    loadedImages.find((img) => img.id === selectedImageId) ?? null;
+
+  const addImages = async (imgs: File[]) => {
+    const loadedImgs = await Promise.all(
+      imgs.map(async (f) => {
+        const decoded = await decodeImage(f);
+
+        return {
+          id: crypto.randomUUID(),
+          label: f.name,
+          ...decoded,
+        };
+      }),
+    );
+
+    setLoadedImages((prev) => {
+      const seen = new Set(prev.map((x) => x.id));
+      return [...prev, ...loadedImgs.filter((x) => !seen.has(x.id))];
+    });
+  };
+
   useEffect(() => {
     const worker = new Worker(
-      new URL("../profile_transformations/conversion.worker.ts", import.meta.url),
+      new URL(
+        "../profile_transformations/conversion.worker.ts",
+        import.meta.url,
+      ),
       { type: "module" },
     );
     conversionWorkerRef.current = worker;
@@ -72,9 +104,18 @@ export const MainPage = () => {
       setIsConverting(false);
     };
 
-    const onWorkerMessage = (event: MessageEvent<ConvertImageWorkerMessage>) => {
+    const onWorkerMessage = (
+      event: MessageEvent<ConvertImageWorkerMessage>,
+    ) => {
       const message = event.data;
-      console.log("[worker reply] requestId:", message.requestId, "active:", activeRequestIdRef.current, "type:", message.type);
+      console.log(
+        "[worker reply] requestId:",
+        message.requestId,
+        "active:",
+        activeRequestIdRef.current,
+        "type:",
+        message.type,
+      );
       if (message.requestId !== activeRequestIdRef.current) return;
 
       if (message.type === "error") {
@@ -86,7 +127,6 @@ export const MainPage = () => {
 
       setConversionError("");
       setIsConverting(false);
-      console.log("[worker success] blob size:", message.blob.size);
       console.log("[worker success] lab length:", message.lab.length); //here we have the lab (reference lab values to use later)
       const nextUrl = URL.createObjectURL(message.blob);
       setConvertedImageUrl((prevUrl) => {
@@ -104,11 +144,6 @@ export const MainPage = () => {
     };
   }, []);
 
-  const selectedICCProfile = availableICCProfiles.find(
-    (p) => p.label === selectedICCProfileName,
-  );
-  const selectedImage = loadedImages.find((img) => img.id === selectedImageId) ?? null;
-
   // Generate a browser-displayable PNG preview URL for the source image.
   // Needed because source files (e.g. TIFF) cannot be rendered natively by browsers.
   useEffect(() => {
@@ -117,7 +152,9 @@ export const MainPage = () => {
     createPreviewObjectUrl(selectedImage).then((url) => {
       if (!cancelled) setSourcePreviewUrl(url);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedImage]);
 
   useEffect(() => {
@@ -138,7 +175,7 @@ export const MainPage = () => {
       },
       cmykProfileBytes: selectedICCProfile.bytes,
       rgbProfileBytes: null, //add monitor profile here if exists
-      options: { outputFormat: "png", preserveAlpha: false }, //preserveAlpha is not usually needed in our workflow. todo: ask henning
+      options: { outputFormat: "png", preserveAlpha: false, gamutWarningEnabled }, //preserveAlpha is not usually needed. i will leave it in case we do
     };
 
     conversionWorkerRef.current?.postMessage(request);
@@ -146,26 +183,7 @@ export const MainPage = () => {
       setIsConverting(true);
       setConversionError("");
     }, 0);
-  }, [selectedImage, selectedICCProfile]);
-
-  const addImages = async (imgs: File[]) => {
-    const loadedImgs = await Promise.all(
-      imgs.map(async (f) => {
-        const decoded = await decodeImage(f);
-
-        return {
-          id: crypto.randomUUID(),
-          label: f.name,
-          ...decoded,
-        };
-      }),
-    );
-
-    setLoadedImages((prev) => {
-      const seen = new Set(prev.map((x) => x.id));
-      return [...prev, ...loadedImgs.filter((x) => !seen.has(x.id))];
-    });
-  };
+  }, [selectedImage, selectedICCProfile, gamutWarningEnabled]);
 
   return (
     <>
@@ -210,9 +228,15 @@ export const MainPage = () => {
               selectedImageLeftUrl={sourcePreviewUrl}
               selectedImageRightUrl={convertedImageUrl || sourcePreviewUrl}
             />
-          ) : <Text color="gray.500" mt="2">Select an image to preview</Text>}
+          ) : (
+            <Text color="gray.500" mt="2">
+              Select an image to preview
+            </Text>
+          )}
           {isConverting ? (
-            <Text mt="2" color="gray.400">Converting image, please wait...</Text>
+            <Text mt="2" color="gray.400">
+              Converting image, please wait...
+            </Text>
           ) : null}
           {conversionError ? (
             <Text mt="2" color="red.500">
@@ -226,8 +250,14 @@ export const MainPage = () => {
           handleChange={(selectedImageId: string) => {
             setSelectedImageId(selectedImageId);
           }}
-          availableImages={loadedImages.map((img) => ({ id: img.id, label: img.label }))}
+          availableImages={loadedImages.map((img) => ({
+            id: img.id,
+            label: img.label,
+          }))}
         />
+        <Checkbox checked={gamutWarningEnabled} onCheckedChange={(details) => setGamutWarningEnabled(details.checked === true)}>
+          Enable gamut warning
+        </Checkbox>
       </Flex>
     </>
   );

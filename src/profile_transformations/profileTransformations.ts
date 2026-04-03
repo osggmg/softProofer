@@ -73,6 +73,26 @@ const createCmykToLabTransform = (cmykProfileHandle: number) => {
   return transform;
 };
 
+const createRGBToLabTransform = (rgbProfileHandle?: number) => {
+  const rgbProfile = rgbProfileHandle ?? getSRGB();
+  const labProfile = getLAB();
+
+  const transform = lcms.createTransform(
+    rgbProfile,
+    TYPE_RGB_8,
+    labProfile,
+    TYPE_Lab_16,
+    INTENT_RELATIVE_COLORIMETRIC,
+    0,
+  );
+
+  if (!transform) {
+    throw new Error("Could not create RGB -> Lab transform");
+  }
+
+  return transform;
+};
+
 const createLABToRGBTransform = (rgbProfileHandle?: number) => {
   const rgbProfile = rgbProfileHandle ?? getSRGB();
   const labProfile = getLAB();
@@ -111,7 +131,7 @@ export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
 
   try {
     const output = new Uint16Array(pixelCount * 3);
-
+    //todo:  not sure if we need this chunking stuff. review
     for (
       let pixelOffset = 0;
       pixelOffset < pixelCount;
@@ -207,28 +227,62 @@ export const LABtoRGB = (input: Uint16Array, RGBProfileBytes?: Uint8Array) => {
   }
 };
 
-async function decodeToRGBA16(file: File) {
-  const wasmUrl = new URL(
-    "../../../node_modules/@imagemagick/magick-wasm/dist/magick.wasm",
-    import.meta.url,
-  ).href;
-  const wasmBytes = await fetch(wasmUrl).then(r => r.arrayBuffer());
-  await initializeImageMagick(new Uint8Array(wasmBytes));
+export const RGBtoLAB = (input: Uint8Array, RGBProfileBytes: Uint8Array | null) => {
+  if (input.length % 3 !== 0) {
+    throw new Error(
+      `Invalid RGB input length ${input.length}. Expected 3 channels per pixel.`,
+    );
+  }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  let rgbProfileHandle: number | undefined;
 
-  return new Promise((resolve) => {
-    ImageMagick.read(bytes, (image) => {
-      const width = image.width;
-      const height = image.height;
+  if (RGBProfileBytes) {
+    rgbProfileHandle = lcms.openProfileFromBytes(RGBProfileBytes);
 
-      const pixels = new Uint16Array(width * height * 4);
+    if (!rgbProfileHandle) {
+      throw new Error("Could not open RGB profile");
+    }
+  }
 
-      image.getPixels(
-        pixels
+  const transform = createRGBToLabTransform(rgbProfileHandle); //assumes sRGB if no profile is provided
+  const pixelCount = input.length / 3;
+
+  try {
+    const output = new Uint16Array(pixelCount * 3);
+
+    for (
+      let pixelOffset = 0;
+      pixelOffset < pixelCount;
+      pixelOffset += TRANSFORM_CHUNK_PIXELS
+    ) {
+      const chunkPixels = Math.min(
+        TRANSFORM_CHUNK_PIXELS,
+        pixelCount - pixelOffset,
       );
+      const inputStart = pixelOffset * 3;
+      const inputEnd = inputStart + chunkPixels * 3;
+      const chunkInput = input.subarray(inputStart, inputEnd);
 
-      resolve({ width, height, pixels });
-    });
-  });
-}
+      const chunkOutput = lcms.doTransform(
+        transform,
+        chunkInput,
+        chunkPixels,
+      ) as Uint16Array;
+
+      if (chunkOutput.length !== chunkPixels * 3) {
+        throw new Error(
+          `RGB to Lab output length mismatch. Expected ${chunkPixels * 3}, got ${chunkOutput.length}.`,
+        );
+      }
+
+      output.set(chunkOutput, pixelOffset * 3);
+    }
+
+    return output;
+  } finally {
+    lcms.deleteTransform(transform);
+    if (rgbProfileHandle) {
+      lcms.closeProfile(rgbProfileHandle);
+    }
+  }
+};

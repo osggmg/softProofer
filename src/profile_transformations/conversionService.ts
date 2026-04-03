@@ -1,11 +1,13 @@
 import { lcmsReady } from "./lcmsSingleton";
-import { CMYKtoLAB, doRGBSoftProof, LABtoRGB } from "./profileTransformations";
+import { CMYKtoLAB, LABtoRGB, RGBtoLAB } from "./profileTransformations";
 
 export type ConversionOutputFormat = "png";
 
 export interface ConvertImageOptions {
   outputFormat?: ConversionOutputFormat;
   preserveAlpha?: boolean;
+  gamutWarningEnabled?: boolean;
+  gamutWarningColor?: [number, number, number];
 }
 
 export interface ConvertedImageResult {
@@ -23,101 +25,155 @@ export interface ConversionImageAsset {
   mapping: string | null;
 }
 
-interface RgbExtractionResult {
-  rgb: Uint8Array;
-  alpha: Uint8Array | null;
+const LAB_L_SCALE = 100.0 / 65535.0;
+const LAB_AB_SCALE = 255.0 / 65535.0;
+
+const TOLERANCE_DELTA = 2;
+
+const deltaE76Squared = (
+  l1: number,
+  a1: number,
+  b1: number,
+  l2: number,
+  a2: number,
+  b2: number,
+): number => {
+  const dL = l1 - l2;
+  const da = a1 - a2;
+  const db = b1 - b2;
+
+  return dL * dL + da * da + db * db;
+};
+
+const deltaE2000 = (
+  l1: number,
+  a1: number,
+  b1: number,
+  l2: number,
+  a2: number,
+  b2: number,
+): number => {
+  const deg2rad = Math.PI / 180;
+  const rad2deg = 180 / Math.PI;
+
+  const c1 = Math.sqrt(a1 * a1 + b1 * b1);
+  const c2 = Math.sqrt(a2 * a2 + b2 * b2);
+  const cBar = (c1 + c2) / 2;
+
+  const cBar7 = cBar ** 7;
+  const g = 0.5 * (1 - Math.sqrt(cBar7 / (cBar7 + 25 ** 7)));
+
+  const a1Prime = (1 + g) * a1;
+  const a2Prime = (1 + g) * a2;
+  const c1Prime = Math.sqrt(a1Prime * a1Prime + b1 * b1);
+  const c2Prime = Math.sqrt(a2Prime * a2Prime + b2 * b2);
+
+  const h1Prime =
+    c1Prime === 0 ? 0 : (Math.atan2(b1, a1Prime) * rad2deg + 360) % 360;
+  const h2Prime =
+    c2Prime === 0 ? 0 : (Math.atan2(b2, a2Prime) * rad2deg + 360) % 360;
+
+  const deltaLPrime = l2 - l1;
+  const deltaCPrime = c2Prime - c1Prime;
+
+  let deltaHPrime = 0;
+  if (c1Prime !== 0 && c2Prime !== 0) {
+    const hueDiff = h2Prime - h1Prime;
+    if (Math.abs(hueDiff) <= 180) {
+      deltaHPrime = hueDiff;
+    } else if (hueDiff > 180) {
+      deltaHPrime = hueDiff - 360;
+    } else {
+      deltaHPrime = hueDiff + 360;
+    }
+  }
+
+  const deltaBigHPrime =
+    2 * Math.sqrt(c1Prime * c2Prime) * Math.sin((deltaHPrime / 2) * deg2rad);
+
+  const lBarPrime = (l1 + l2) / 2;
+  const cBarPrime = (c1Prime + c2Prime) / 2;
+
+  let hBarPrime = h1Prime + h2Prime;
+  if (c1Prime !== 0 && c2Prime !== 0) {
+    if (Math.abs(h1Prime - h2Prime) > 180) {
+      hBarPrime =
+        h1Prime + h2Prime < 360
+          ? (h1Prime + h2Prime + 360) / 2
+          : (h1Prime + h2Prime - 360) / 2;
+    } else {
+      hBarPrime = (h1Prime + h2Prime) / 2;
+    }
+  }
+
+  const t =
+    1 -
+    0.17 * Math.cos((hBarPrime - 30) * deg2rad) +
+    0.24 * Math.cos(2 * hBarPrime * deg2rad) +
+    0.32 * Math.cos((3 * hBarPrime + 6) * deg2rad) -
+    0.2 * Math.cos((4 * hBarPrime - 63) * deg2rad);
+
+  const hueOffset = (hBarPrime - 275) / 25;
+  const deltaTheta = 30 * Math.exp(-(hueOffset * hueOffset));
+  const cBarPrime7 = cBarPrime ** 7;
+  const rC = 2 * Math.sqrt(cBarPrime7 / (cBarPrime7 + 25 ** 7));
+  const sL =
+    1 +
+    (0.015 * (lBarPrime - 50) * (lBarPrime - 50)) /
+      Math.sqrt(20 + (lBarPrime - 50) * (lBarPrime - 50));
+  const sC = 1 + 0.045 * cBarPrime;
+  const sH = 1 + 0.015 * cBarPrime * t;
+  const rT = -Math.sin(2 * deltaTheta * deg2rad) * rC;
+
+  const lightnessTerm = deltaLPrime / sL;
+  const chromaTerm = deltaCPrime / sC;
+  const hueTerm = deltaBigHPrime / sH;
+
+  return Math.sqrt(
+    lightnessTerm * lightnessTerm +
+      chromaTerm * chromaTerm +
+      hueTerm * hueTerm +
+      rT * chromaTerm * hueTerm,
+  );
+};
+
+// Returns a per-pixel mask: 0 = in gamut, 255 = out of gamut.
+// Lab16 encoding (LCMS): L = val*(100/65535), a/b = val*(255/65535)-128
+function createGamutCheckMask(
+  rgbInput: Uint8Array,
+  labInput: Uint16Array,
+  delta: number,
+  rgbProfileBytes: Uint8Array | null,
+): Uint8Array {
+  const USE_DE2000 = false;
+  const newLAB = RGBtoLAB(rgbInput, rgbProfileBytes);
+
+  const pixelCount = labInput.length / 3;
+  const mask = new Uint8Array(pixelCount);
+  const deltaSq = delta * delta;
+
+  for (let i = 0; i < pixelCount; i++) {
+    const base = i * 3;
+
+    const l1 = labInput[base] * LAB_L_SCALE;
+    const a1 = labInput[base + 1] * LAB_AB_SCALE - 128.0;
+    const b1 = labInput[base + 2] * LAB_AB_SCALE - 128.0;
+
+    const l2 = newLAB[base] * LAB_L_SCALE;
+    const a2 = newLAB[base + 1] * LAB_AB_SCALE - 128.0;
+    const b2 = newLAB[base + 2] * LAB_AB_SCALE - 128.0;
+
+    const difference = USE_DE2000
+      ? deltaE2000(l1, a1, b1, l2, a2, b2)
+      : deltaE76Squared(l1, a1, b1, l2, a2, b2);
+
+    if (USE_DE2000 ? difference > delta : difference > deltaSq) {
+      mask[i] = 255;
+    }
+  }
+
+  return mask;
 }
-
-const cmykToRgb = (
-  c: number,
-  m: number,
-  y: number,
-  k: number,
-): [number, number, number] => {
-  return [
-    Math.round(255 * (1 - c / 255) * (1 - k / 255)),
-    Math.round(255 * (1 - m / 255) * (1 - k / 255)),
-    Math.round(255 * (1 - y / 255) * (1 - k / 255)),
-  ];
-};
-
-const extractRgbAndAlpha = (
-  image: ConversionImageAsset,
-): RgbExtractionResult => {
-  const { data, mapping, width, height } = image;
-  const pixelCount = width * height;
-
-  if (mapping === "RGB") {
-    return { rgb: data, alpha: null };
-  }
-
-  if (mapping === "RGBA") {
-    const rgb = new Uint8Array(pixelCount * 3);
-    const alpha = new Uint8Array(pixelCount);
-
-    for (let i = 0, j = 0, k = 0; i < data.length; i += 4, j += 3, k += 1) {
-      rgb[j] = data[i];
-      rgb[j + 1] = data[i + 1];
-      rgb[j + 2] = data[i + 2];
-      alpha[k] = data[i + 3];
-    }
-
-    return { rgb, alpha };
-  }
-
-  if (mapping === "I") {
-    const rgb = new Uint8Array(pixelCount * 3);
-
-    for (let i = 0, j = 0; i < data.length; i += 1, j += 3) {
-      const v = data[i];
-      rgb[j] = v;
-      rgb[j + 1] = v;
-      rgb[j + 2] = v;
-    }
-
-    return { rgb, alpha: null };
-  }
-
-  if (mapping === "CMYK") {
-    const rgb = new Uint8Array(pixelCount * 3);
-
-    for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
-      const [r, g, b] = cmykToRgb(
-        data[i],
-        data[i + 1],
-        data[i + 2],
-        data[i + 3],
-      );
-      rgb[j] = r;
-      rgb[j + 1] = g;
-      rgb[j + 2] = b;
-    }
-
-    return { rgb, alpha: null };
-  }
-
-  if (mapping === "CMYKA") {
-    const rgb = new Uint8Array(pixelCount * 3);
-    const alpha = new Uint8Array(pixelCount);
-
-    for (let i = 0, j = 0, k = 0; i < data.length; i += 5, j += 3, k += 1) {
-      const [r, g, b] = cmykToRgb(
-        data[i],
-        data[i + 1],
-        data[i + 2],
-        data[i + 3],
-      );
-      rgb[j] = r;
-      rgb[j + 1] = g;
-      rgb[j + 2] = b;
-      alpha[k] = data[i + 4];
-    }
-
-    return { rgb, alpha };
-  }
-
-  throw new Error(`Unsupported mapping for conversion: ${mapping ?? "null"}`);
-};
 
 const composeRgba = (
   rgb: Uint8Array,
@@ -213,16 +269,17 @@ export const convertImageAssetWithProfile = async (
 
   const outputFormat = options.outputFormat ?? "png";
   const preserveAlpha = options.preserveAlpha ?? true;
+  const gamutWarningEnabled = options.gamutWarningEnabled ?? false;
 
   if (outputFormat !== "png") {
     throw new Error(`Unsupported output format: ${outputFormat}`);
   }
 
-  //here take cmyk image and profile and convert to lab, store the lab, then convert to rgb with monitor profile
-  const cmyk8 = extractCmyk8(imageAsset);
+  const cmyk8 = extractCmyk8(imageAsset); //not sure if we need this ok. later perform channel mapping here
   let lab: Uint16Array;
 
   try {
+    //later depending on what we have we perform channel mapping or use other functions e.g. rgbtolab etc
     lab = CMYKtoLAB(u8to16(cmyk8), cmykProfileBytes);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -241,6 +298,20 @@ export const convertImageAssetWithProfile = async (
       `Lab to RGB failed (labValues=${lab.length}, pixels=${imageAsset.width * imageAsset.height}): ${message}`,
     );
   }
+
+  const mask = createGamutCheckMask(rgb, lab, TOLERANCE_DELTA, rgbProfileBytes);
+
+  if (gamutWarningEnabled) {
+    const [wr, wg, wb] = options.gamutWarningColor ?? [255, 0, 255];
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] !== 0) {
+        rgb[i * 3]     = wr;
+        rgb[i * 3 + 1] = wg;
+        rgb[i * 3 + 2] = wb;
+      }
+    }
+  }
+
   //we need alpha (opacity channel) to encode into png. usually we dont need alpha in such a workflow, but later we can add support for that
   const rgba = composeRgba(
     rgb,
