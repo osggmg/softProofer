@@ -5,6 +5,7 @@ import {
   INTENT_RELATIVE_COLORIMETRIC,
   TYPE_CMYK_16,
   TYPE_Lab_16,
+  INTENT_ABSOLUTE_COLORIMETRIC,
 } from "lcms-wasm";
 
 import {
@@ -62,8 +63,8 @@ const createCmykToLabTransform = (cmykProfileHandle: number) => {
     TYPE_CMYK_16,
     labProfile,
     TYPE_Lab_16,
-    INTENT_RELATIVE_COLORIMETRIC,
-    0,
+    INTENT_ABSOLUTE_COLORIMETRIC,
+    0x0100,
   );
 
   if (!transform) {
