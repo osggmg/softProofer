@@ -325,8 +325,7 @@ export const convertImageAssetWithProfile = async (
     imageAsset.width,
     imageAsset.height,
   );
-
-  console.log(lab)
+  
   return {
     blob,
     lab,

@@ -104,6 +104,18 @@ export class LcmsService {
     return this.lcms.cmsGetColorSpace(profile);
   }
 
+  formatterForColorspaceOfProfile(
+    profile: number,
+    bytesPerSample: number,
+    isFloat: 0 | 1,
+  ) {
+    return this.lcms.cmsFormatterForColorspaceOfProfile(
+      profile,
+      bytesPerSample,
+      isFloat,
+    );
+  }
+
   doTransform(
     transform: number,
     input: Uint8Array | Uint16Array | Float32Array | Float64Array,

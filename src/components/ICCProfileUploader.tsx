@@ -3,9 +3,14 @@ import { HiUpload } from "react-icons/hi";
 
 interface ICCProfileUploaderProps {
   handleFileChange: any;
+  label?: string;
+  buttonLabel?: string;
 }
 
 export const ICCProfileUploader = (props: ICCProfileUploaderProps) => {
+  const label = props.label ?? "...or upload your own:";
+  const buttonLabel = props.buttonLabel ?? "Upload profile";
+
   return (
     <FileUpload.Root
       width="300px"
@@ -14,11 +19,11 @@ export const ICCProfileUploader = (props: ICCProfileUploaderProps) => {
       }}
     >
       <FileUpload.HiddenInput />
-      <FileUpload.Label>...or upload your own:</FileUpload.Label>
+      <FileUpload.Label>{label}</FileUpload.Label>
       <Flex direction={"column"}>
         <FileUpload.Trigger asChild>
           <Button variant="outline" size="sm" border="1px solid grey">
-            <HiUpload /> Upload profile
+            <HiUpload /> {buttonLabel}
           </Button>
         </FileUpload.Trigger>
         {/* <Box mt={3} borderRadius={10}>

@@ -5,6 +5,8 @@ interface ImageSelectorProps {
   selectedImageId: string;
   handleChange: (value: string) => void;
   availableImages: { id: string; label: string }[];
+  label?: string;
+  placeholder?: string;
 }
 
 export const ImageSelector = (props: ImageSelectorProps) => {
@@ -19,13 +21,16 @@ export const ImageSelector = (props: ImageSelectorProps) => {
       }),
     [props.availableImages],
   );
+
+  const label = props.label ?? "Select image";
+  const placeholder = props.placeholder ?? "No image selected";
   
   return (
     <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={props.selectedImageId ? [props.selectedImageId] : []} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
-      <Select.Label>Select image</Select.Label>
+      <Select.Label>{label}</Select.Label>
       <Select.Control>
         <Select.Trigger border={"1px solid grey"}>
-          <Select.ValueText placeholder="No image selected" />
+          <Select.ValueText placeholder={placeholder} />
         </Select.Trigger>
         <Select.IndicatorGroup>
           <Select.Indicator />

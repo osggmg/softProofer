@@ -1,18 +1,16 @@
 import { LcmsService } from "./lcmsService";
 import { lcms } from "./lcmsSingleton";
 import {
+  getClrtColorantOrder,
+  logClrtTag,
+  mapCmykToProfileColorantOrder,
+} from "./channelMapping.ts";
+import {
   TYPE_RGB_8,
   INTENT_RELATIVE_COLORIMETRIC,
-  TYPE_CMYK_16,
   TYPE_Lab_16,
   INTENT_ABSOLUTE_COLORIMETRIC,
 } from "lcms-wasm";
-
-import {
-  ImageMagick,
-  initializeImageMagick,
-  MagickFormat
-} from "@imagemagick/magick-wasm";
 
 let hSRGB: number | null = null;
 
@@ -57,10 +55,19 @@ export const doRGBSoftProof = (
 
 const createCmykToLabTransform = (cmykProfileHandle: number) => {
   const labProfile = getLAB();
+  const inputFormat = lcms.formatterForColorspaceOfProfile(
+    cmykProfileHandle,
+    2,
+    0,
+  );
+
+  console.log(
+    `[CMYKtoLAB] profile-derived input format=0x${inputFormat.toString(16)}`,
+  );
 
   const transform = lcms.createTransform(
     cmykProfileHandle,
-    TYPE_CMYK_16,
+    inputFormat,
     labProfile,
     TYPE_Lab_16,
     INTENT_ABSOLUTE_COLORIMETRIC,
@@ -121,6 +128,14 @@ export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
     );
   }
 
+  logClrtTag(CMYKProfile);
+  const profileOrder = getClrtColorantOrder(CMYKProfile);
+  if (profileOrder) {
+    console.log(`[CMYKtoLAB] profile order from clrt: ${profileOrder.join(" -> ")}`);
+  }
+
+  const mappedInput = mapCmykToProfileColorantOrder(input, CMYKProfile);
+
   const cmykProfileHandle = lcms.openProfileFromBytes(CMYKProfile);
 
   if (!cmykProfileHandle) {
@@ -128,9 +143,10 @@ export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
   }
 
   const transform = createCmykToLabTransform(cmykProfileHandle);
-  const pixelCount = input.length / 4;
+  const pixelCount = mappedInput.length / 4;
 
   try {
+    console.log(`[CMYKtoLAB] transforming ${pixelCount} pixels`);
     const output = new Uint16Array(pixelCount * 3);
     //todo:  not sure if we need this chunking stuff. review
     for (
@@ -144,7 +160,7 @@ export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
       );
       const inputStart = pixelOffset * 4;
       const inputEnd = inputStart + chunkPixels * 4;
-      const chunkInput = input.subarray(inputStart, inputEnd);
+      const chunkInput = mappedInput.subarray(inputStart, inputEnd);
 
       const chunkOutput = lcms.doTransform(
         transform,

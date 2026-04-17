@@ -6,6 +6,8 @@ interface ICCProfileSelectorProps {
   selectedICCProfileName: string;
   handleChange: (value: string) => void;
   availableICCProfiles: ICCProfile[];
+  label?: string;
+  placeholder?: string;
 }
 
 
@@ -20,13 +22,16 @@ export const ICCProfileSelector = (props: ICCProfileSelectorProps) => {
       }),
     [props.availableICCProfiles],
   );
+
+  const label = props.label ?? "Select ICC Profile";
+  const placeholder = props.placeholder ?? "No ICC profile selected";
   
   return (
     <Select.Root collection={itemsToRender} size="sm" width="320px" pt="2" value={props.selectedICCProfileName ? [props.selectedICCProfileName] : []} onValueChange={(e) => props.handleChange(e.value[0] || "")}>
-      <Select.Label>Select ICC Profile</Select.Label>
+      <Select.Label>{label}</Select.Label>
       <Select.Control>
         <Select.Trigger border={"1px solid grey"}>
-          <Select.ValueText placeholder="No ICC profile selected"/>
+          <Select.ValueText placeholder={placeholder}/>
         </Select.Trigger>
         <Select.IndicatorGroup>
           <Select.Indicator />
