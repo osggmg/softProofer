@@ -20,6 +20,7 @@ import {
   eciCMYK_v2_basic_profile,
 } from "../default_profiles_and_images/default_profiles/default_cmyk_profiles";
 import { readDefaultImages } from "../default_profiles_and_images/default_profiles_and_images_utils";
+import styled from "styled-components";
 
 export interface ImageObject extends DecodedImage {
   id: string;
@@ -37,10 +38,9 @@ const defaultICCProfiles: ICCProfile[] = [
 const defaultImages: ImageObject[] = await readDefaultImages();
 const NO_MONITOR_PROFILE_VALUE = "No monitor profile (optional)";
 
-const emptyMonitorProfileValue = { label: NO_MONITOR_PROFILE_VALUE }
+const emptyMonitorProfileValue = { label: NO_MONITOR_PROFILE_VALUE };
 
 export const MainPage = () => {
-
   const [selectedICCProfileNameLeft, setSelectedICCProfileNameLeft] =
     useState<string>("");
   const [selectedICCProfileNameRight, setSelectedICCProfileNameRight] =
@@ -49,22 +49,26 @@ export const MainPage = () => {
   const [selectedMonitorProfileName, setSelectedMonitorProfileName] =
     useState<string>(NO_MONITOR_PROFILE_VALUE);
 
-
   const [availableICCProfiles, setAvailableICCProfiles] =
     useState(defaultICCProfiles);
-  const [availableMonitorProfiles, setAvailableMonitorProfiles] = useState<ICCProfile[]>([]);
+  const [availableMonitorProfiles, setAvailableMonitorProfiles] = useState<
+    ICCProfile[]
+  >([]);
 
-
-  const [selectedImageIdLeft, setSelectedImageIdLeft] =
-    useState<string | null>(null);
-  const [selectedImageIdRight, setSelectedImageIdRight] =
-    useState<string | null>(null);
+  const [selectedImageIdLeft, setSelectedImageIdLeft] = useState<string | null>(
+    null,
+  );
+  const [selectedImageIdRight, setSelectedImageIdRight] = useState<
+    string | null
+  >(null);
 
   const [loadedImages, setLoadedImages] =
     useState<ImageObject[]>(defaultImages);
 
-  const [convertedImageLeftUrl, setConvertedImageLeftUrl] = useState<string>("");
-  const [convertedImageRightUrl, setConvertedImageRightUrl] = useState<string>("");
+  const [convertedImageLeftUrl, setConvertedImageLeftUrl] =
+    useState<string>("");
+  const [convertedImageRightUrl, setConvertedImageRightUrl] =
+    useState<string>("");
 
   const [conversionErrorLeft, setConversionErrorLeft] = useState<string>("");
   const [conversionErrorRight, setConversionErrorRight] = useState<string>("");
@@ -223,15 +227,16 @@ export const MainPage = () => {
     monitorProfileName: string = selectedMonitorProfileName,
     nextGamutWarningEnabled: boolean = gamutWarningEnabled,
   ) => {
-    const selectedImage = loadedImages.find((img) => img.id === imageId) ?? null;
+    const selectedImage =
+      loadedImages.find((img) => img.id === imageId) ?? null;
     const selectedICCProfile =
       availableICCProfiles.find((p) => p.label === cmykProfileName) ?? null;
     const selectedMonitorProfile =
       monitorProfileName === NO_MONITOR_PROFILE_VALUE
         ? null
-        :
-          (availableMonitorProfiles.find((p) => p.label === monitorProfileName) ??
-            null);
+        : (availableMonitorProfiles.find(
+            (p) => p.label === monitorProfileName,
+          ) ?? null);
 
     if (!selectedImage || !selectedICCProfile?.bytes) {
       clearSideResult(side);
@@ -279,181 +284,218 @@ export const MainPage = () => {
         <Heading mt={5} mb={5}>
           GMG SOFTPROOFER
         </Heading>
-        <Flex gap="10" direction="column" width="1200">
-          <Flex gap="16" direction="row" wrap="wrap">
-            <ICCProfileSelector
-              selectedICCProfileName={selectedICCProfileNameLeft}
-              handleChange={(value) => {
-                setSelectedICCProfileNameLeft(value);
-                triggerConversionForSide("left", selectedImageIdLeft, value);
-              }}
-              availableICCProfiles={availableICCProfiles}
-              label="Profile 1"
-              placeholder="Select profile for image 1"
-            />
-            <ICCProfileSelector
-              selectedICCProfileName={selectedICCProfileNameRight}
-              handleChange={(value) => {
-                setSelectedICCProfileNameRight(value);
-                triggerConversionForSide("right", selectedImageIdRight, value);
-              }}
-              availableICCProfiles={availableICCProfiles}
-              label="Profile 2"
-              placeholder="Select profile for image 2"
-            />
-            <ICCProfileUploader
-              label="CMYK profiles"
-              buttonLabel="Upload CMYK profile"
-              handleFileChange={async (newProfiles: File[]) => {
-                const newItems = await Promise.all(
-                  newProfiles.map(async (f) => {
-                    const buffer = await f.arrayBuffer();
-                    return {
-                      label: f.name,
-                      bytes: new Uint8Array(buffer),
-                    };
-                  }),
-                );
+        <Flex flexDirection={"row"} gap={16}>
+          <Section>
+            <Flex gap="10" direction="column" width="1200">
+              <Flex gap="16" direction="row" wrap="wrap">
+                <ICCProfileSelector
+                  selectedICCProfileName={selectedICCProfileNameLeft}
+                  handleChange={(value) => {
+                    setSelectedICCProfileNameLeft(value);
+                    triggerConversionForSide(
+                      "left",
+                      selectedImageIdLeft,
+                      value,
+                    );
+                  }}
+                  availableICCProfiles={availableICCProfiles}
+                  label="Profile 1"
+                  placeholder="Select profile for image 1"
+                />
+                <ICCProfileSelector
+                  selectedICCProfileName={selectedICCProfileNameRight}
+                  handleChange={(value) => {
+                    setSelectedICCProfileNameRight(value);
+                    triggerConversionForSide(
+                      "right",
+                      selectedImageIdRight,
+                      value,
+                    );
+                  }}
+                  availableICCProfiles={availableICCProfiles}
+                  label="Profile 2"
+                  placeholder="Select profile for image 2"
+                />
+                <ICCProfileUploader
+                  label="CMYK profiles"
+                  buttonLabel="Upload CMYK profile"
+                  handleFileChange={async (newProfiles: File[]) => {
+                    const newItems = await Promise.all(
+                      newProfiles.map(async (f) => {
+                        const buffer = await f.arrayBuffer();
+                        return {
+                          label: f.name,
+                          bytes: new Uint8Array(buffer),
+                        };
+                      }),
+                    );
 
-                setAvailableICCProfiles((prev) => {
-                  const seen = new Set(prev.map((x) => x.label));
-                  return [...prev, ...newItems.filter((x) => !seen.has(x.label))];
-                });
-              }}
-            />
-          </Flex>
-          <Flex gap="16" direction="row" wrap="wrap">
-            <ICCProfileSelector
-              selectedICCProfileName={selectedMonitorProfileName}
-              handleChange={(value) => {
-                setSelectedMonitorProfileName(value);
+                    setAvailableICCProfiles((prev) => {
+                      const seen = new Set(prev.map((x) => x.label));
+                      return [
+                        ...prev,
+                        ...newItems.filter((x) => !seen.has(x.label)),
+                      ];
+                    });
+                  }}
+                />
+              </Flex>
+              <Flex gap="16" direction="row" wrap="wrap">
+                <ICCProfileSelector
+                  selectedICCProfileName={selectedMonitorProfileName}
+                  handleChange={(value) => {
+                    setSelectedMonitorProfileName(value);
+                    triggerConversionForSide(
+                      "left",
+                      selectedImageIdLeft,
+                      selectedICCProfileNameLeft,
+                      value,
+                    );
+                    triggerConversionForSide(
+                      "right",
+                      selectedImageIdRight,
+                      selectedICCProfileNameRight,
+                      value,
+                    );
+                  }}
+                  availableICCProfiles={loadedMonitorProfiles}
+                  label="Monitor profile (optional)"
+                  placeholder="No monitor profile"
+                />
+                <ICCProfileUploader
+                  label="Monitor profiles"
+                  buttonLabel="Upload monitor profile"
+                  handleFileChange={async (newProfiles: File[]) => {
+                    const newItems = await Promise.all(
+                      newProfiles.map(async (f) => {
+                        const buffer = await f.arrayBuffer();
+                        return {
+                          label: f.name,
+                          bytes: new Uint8Array(buffer),
+                        };
+                      }),
+                    );
+
+                    setAvailableMonitorProfiles((prev) => {
+                      const seen = new Set(prev.map((x) => x.label));
+                      return [
+                        ...prev,
+                        ...newItems.filter((x) => !seen.has(x.label)),
+                      ];
+                    });
+                  }}
+                />
+              </Flex>
+            </Flex>
+            <ImageUploader handleFileChange={addImages}></ImageUploader>
+            <Flex direction="row" gap={16} wrap="wrap">
+              <ImageSelector
+                selectedImageId={selectedImageIdLeft || ""}
+                handleChange={(selectedImageId: string) => {
+                  setSelectedImageIdLeft(selectedImageId);
+                  triggerConversionForSide(
+                    "left",
+                    selectedImageId,
+                    selectedICCProfileNameLeft,
+                  );
+                }}
+                availableImages={loadedImages.map((img) => ({
+                  id: img.id,
+                  label: img.label,
+                }))}
+                label="Image 1"
+                placeholder="Select image for profile 1"
+              />
+              <ImageSelector
+                selectedImageId={selectedImageIdRight || ""}
+                handleChange={(selectedImageId: string) => {
+                  setSelectedImageIdRight(selectedImageId);
+                  triggerConversionForSide(
+                    "right",
+                    selectedImageId,
+                    selectedICCProfileNameRight,
+                  );
+                }}
+                availableImages={loadedImages.map((img) => ({
+                  id: img.id,
+                  label: img.label,
+                }))}
+                label="Image 2"
+                placeholder="Select image for profile 2"
+              />
+            </Flex>
+            <Checkbox
+              checked={gamutWarningEnabled}
+              onCheckedChange={(details) => {
+                const nextGamutWarningEnabled = details.checked === true;
+                setGamutWarningEnabled(nextGamutWarningEnabled);
                 triggerConversionForSide(
                   "left",
                   selectedImageIdLeft,
                   selectedICCProfileNameLeft,
-                  value,
+                  selectedMonitorProfileName,
+                  nextGamutWarningEnabled,
                 );
                 triggerConversionForSide(
                   "right",
                   selectedImageIdRight,
                   selectedICCProfileNameRight,
-                  value,
+                  selectedMonitorProfileName,
+                  nextGamutWarningEnabled,
                 );
               }}
-              availableICCProfiles={loadedMonitorProfiles}
-              label="Monitor profile (optional)"
-              placeholder="No monitor profile"
-            />
-            <ICCProfileUploader
-              label="Monitor profiles"
-              buttonLabel="Upload monitor profile"
-              handleFileChange={async (newProfiles: File[]) => {
-                const newItems = await Promise.all(
-                  newProfiles.map(async (f) => {
-                    const buffer = await f.arrayBuffer();
-                    return {
-                      label: f.name,
-                      bytes: new Uint8Array(buffer),
-                    };
-                  }),
-                );
-
-                setAvailableMonitorProfiles((prev) => {
-                  const seen = new Set(prev.map((x) => x.label));
-                  return [...prev, ...newItems.filter((x) => !seen.has(x.label))];
-                });
-              }}
-            />
-          </Flex>
+            >
+              Enable gamut warning
+            </Checkbox>
+          </Section>
+          <Section $width={"1230px"}>
+            <div>
+              {convertedImageLeftUrl && convertedImageRightUrl ? (
+                <ImageCompare
+                  selectedImageLeftUrl={convertedImageLeftUrl}
+                  selectedImageRightUrl={convertedImageRightUrl}
+                />
+              ) : (
+                <Text color="gray.500" mt="2">
+                  Select two images and profiles to preview the transformed
+                  comparison
+                </Text>
+              )}
+              {isConvertingLeft || isConvertingRight ? (
+                <Text mt="2" color="gray.400">
+                  Converting image, please wait...
+                </Text>
+              ) : null}
+              {conversionErrorLeft ? (
+                <Text mt="2" color="red.500">
+                  Left conversion failed: {conversionErrorLeft}
+                </Text>
+              ) : null}
+              {conversionErrorRight ? (
+                <Text mt="2" color="red.500">
+                  Right conversion failed: {conversionErrorRight}
+                </Text>
+              ) : null}
+            </div>
+          </Section>
         </Flex>
-        <div>
-          {convertedImageLeftUrl && convertedImageRightUrl ? (
-            <ImageCompare
-              selectedImageLeftUrl={convertedImageLeftUrl}
-              selectedImageRightUrl={convertedImageRightUrl}
-            />
-          ) : (
-            <Text color="gray.500" mt="2">
-              Select two images and profiles to preview the transformed comparison
-            </Text>
-          )}
-          {isConvertingLeft || isConvertingRight ? (
-            <Text mt="2" color="gray.400">
-              Converting image, please wait...
-            </Text>
-          ) : null}
-          {conversionErrorLeft ? (
-            <Text mt="2" color="red.500">
-              Left conversion failed: {conversionErrorLeft}
-            </Text>
-          ) : null}
-          {conversionErrorRight ? (
-            <Text mt="2" color="red.500">
-              Right conversion failed: {conversionErrorRight}
-            </Text>
-          ) : null}
-        </div>
-        <ImageUploader handleFileChange={addImages}></ImageUploader>
-        <Flex direction="row" gap={16} wrap="wrap">
-          <ImageSelector
-            selectedImageId={selectedImageIdLeft || ""}
-            handleChange={(selectedImageId: string) => {
-              setSelectedImageIdLeft(selectedImageId);
-              triggerConversionForSide(
-                "left",
-                selectedImageId,
-                selectedICCProfileNameLeft,
-              );
-            }}
-            availableImages={loadedImages.map((img) => ({
-              id: img.id,
-              label: img.label,
-            }))}
-            label="Image 1"
-            placeholder="Select image for profile 1"
-          />
-          <ImageSelector
-            selectedImageId={selectedImageIdRight || ""}
-            handleChange={(selectedImageId: string) => {
-              setSelectedImageIdRight(selectedImageId);
-              triggerConversionForSide(
-                "right",
-                selectedImageId,
-                selectedICCProfileNameRight,
-              );
-            }}
-            availableImages={loadedImages.map((img) => ({
-              id: img.id,
-              label: img.label,
-            }))}
-            label="Image 2"
-            placeholder="Select image for profile 2"
-          />
-        </Flex>
-        <Checkbox
-          checked={gamutWarningEnabled}
-          onCheckedChange={(details) => {
-            const nextGamutWarningEnabled = details.checked === true;
-            setGamutWarningEnabled(nextGamutWarningEnabled);
-            triggerConversionForSide(
-              "left",
-              selectedImageIdLeft,
-              selectedICCProfileNameLeft,
-              selectedMonitorProfileName,
-              nextGamutWarningEnabled,
-            );
-            triggerConversionForSide(
-              "right",
-              selectedImageIdRight,
-              selectedICCProfileNameRight,
-              selectedMonitorProfileName,
-              nextGamutWarningEnabled,
-            );
-          }}
-        >
-          Enable gamut warning
-        </Checkbox>
       </Flex>
     </>
   );
 };
+
+const Section = styled.div<{
+  $width?: string;
+  $height?: string;
+}>`
+  display: inline-flex;
+  width: ${({ $width }) => $width ?? "auto"};
+  height: ${({ $height }) => $height ?? "auto"};
+  padding: 40px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 60px;
+  background-color: #f2f2f2;
+  border: 1px solid red;
+  border-radius: 10px;
+`;
