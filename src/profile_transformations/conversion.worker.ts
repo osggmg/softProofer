@@ -27,6 +27,7 @@ self.onmessage = async (event: MessageEvent<ConvertImageWorkerRequest>) => {
       type: "result",
       requestId: message.requestId,
       blob: result.blob,
+      rgb: result.rgb,
       lab: result.lab,
       mimeType: result.mimeType,
       width: result.width,

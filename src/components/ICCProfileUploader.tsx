@@ -8,7 +8,7 @@ interface ICCProfileUploaderProps {
 }
 
 export const ICCProfileUploader = (props: ICCProfileUploaderProps) => {
-  const label = props.label ?? "...or upload your own:";
+  const label = props.label;
   const buttonLabel = props.buttonLabel ?? "Upload profile";
 
   return (
@@ -22,7 +22,14 @@ export const ICCProfileUploader = (props: ICCProfileUploaderProps) => {
       <FileUpload.Label>{label}</FileUpload.Label>
       <Flex direction={"column"}>
         <FileUpload.Trigger asChild>
-          <Button variant="outline" size="sm" border="1px solid grey">
+          <Button
+            height="36px"
+            variant="outline"
+            size="sm"
+            color="#595959"
+            fontWeight={400}
+            _hover={{ color: "white" }}
+          >
             <HiUpload /> {buttonLabel}
           </Button>
         </FileUpload.Trigger>

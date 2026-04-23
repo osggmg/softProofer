@@ -1,4 +1,4 @@
-import { Flex, Heading, Text } from "@chakra-ui/react";
+import { Box, Flex, Heading, Text } from "@chakra-ui/react";
 import { Checkbox } from "./../components/ui/checkbox";
 import { ICCProfileUploader } from "./ICCProfileUploader";
 import { ICCProfileSelector } from "./ICCProfileSelector";
@@ -27,6 +27,25 @@ export interface ImageObject extends DecodedImage {
   label: string;
 }
 
+interface ConvertedPixelData {
+  rgb: Uint8Array;
+  lab: Uint16Array;
+  width: number;
+  height: number;
+}
+
+interface ConvertedPixelDataBySide {
+  left: ConvertedPixelData | null;
+  right: ConvertedPixelData | null;
+}
+
+interface PipetteValue {
+  x: number;
+  y: number;
+  rgb: [number, number, number];
+  lab: [number, number, number];
+}
+
 const defaultICCProfiles: ICCProfile[] = [
   { label: "eciCMYK_v2_basic_profile", bytes: eciCMYK_v2_basic_profile },
   {
@@ -39,6 +58,42 @@ const defaultImages: ImageObject[] = await readDefaultImages();
 const NO_MONITOR_PROFILE_VALUE = "No monitor profile (optional)";
 
 const emptyMonitorProfileValue = { label: NO_MONITOR_PROFILE_VALUE };
+type ColorModel = "CMYK" | "RGB";
+
+const inferColorModelFromLabel = (label: string): ColorModel | null => {
+  const normalized = label.toUpperCase();
+  if (normalized.includes("CMYK")) return "CMYK";
+  if (normalized.includes("RGB") || normalized.includes("SRGB")) return "RGB";
+  return null;
+};
+
+const getImageColorModel = (image: ImageObject | null): ColorModel | null => {
+  if (!image) return null;
+
+  const normalizedColorSpace = image.colorSpace.toUpperCase();
+  if (normalizedColorSpace.includes("CMYK")) return "CMYK";
+  if (normalizedColorSpace.includes("RGB")) return "RGB";
+
+  const mapping = image.mapping?.toUpperCase();
+  if (mapping?.startsWith("CMYK")) return "CMYK";
+  if (mapping?.startsWith("RGB")) return "RGB";
+
+  return null;
+};
+
+const getProfileColorModel = (profile: ICCProfile): ColorModel | null => {
+  if (profile.bytes && profile.bytes.length >= 20) {
+    const signature = new TextDecoder("ascii")
+      .decode(profile.bytes.slice(16, 20))
+      .trim()
+      .toUpperCase();
+
+    if (signature === "CMYK") return "CMYK";
+    if (signature === "RGB") return "RGB";
+  }
+
+  return inferColorModelFromLabel(profile.label);
+};
 
 export const MainPage = () => {
   const [selectedICCProfileNameLeft, setSelectedICCProfileNameLeft] =
@@ -69,6 +124,9 @@ export const MainPage = () => {
     useState<string>("");
   const [convertedImageRightUrl, setConvertedImageRightUrl] =
     useState<string>("");
+  const [convertedPixelDataBySide, setConvertedPixelDataBySide] = useState<
+    ConvertedPixelDataBySide
+  >({ left: null, right: null });
 
   const [conversionErrorLeft, setConversionErrorLeft] = useState<string>("");
   const [conversionErrorRight, setConversionErrorRight] = useState<string>("");
@@ -82,6 +140,7 @@ export const MainPage = () => {
   const requestTargetRef = useRef<Map<number, "left" | "right">>(new Map());
 
   const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
+  const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
 
   // Create the worker once and subscribe to its messages in a single effect.
   // Keeping both in one effect guarantees the worker exists before the listener
@@ -91,6 +150,72 @@ export const MainPage = () => {
   const loadedMonitorProfiles = useMemo(
     () => [emptyMonitorProfileValue, ...availableMonitorProfiles],
     [availableMonitorProfiles],
+  );
+
+  const selectedImageLeft = useMemo(
+    () => loadedImages.find((img) => img.id === selectedImageIdLeft) ?? null,
+    [loadedImages, selectedImageIdLeft],
+  );
+
+  const selectedImageRight = useMemo(
+    () => loadedImages.find((img) => img.id === selectedImageIdRight) ?? null,
+    [loadedImages, selectedImageIdRight],
+  );
+
+  const selectedImageColorModelLeft = useMemo(
+    () => getImageColorModel(selectedImageLeft),
+    [selectedImageLeft],
+  );
+
+  const selectedImageColorModelRight = useMemo(
+    () => getImageColorModel(selectedImageRight),
+    [selectedImageRight],
+  );
+
+  const availableICCProfilesLeft = useMemo(
+    () =>
+      availableICCProfiles.filter(
+        (profile) =>
+          getProfileColorModel(profile) === selectedImageColorModelLeft,
+      ),
+    [availableICCProfiles, selectedImageColorModelLeft],
+  );
+
+  const availableICCProfilesRight = useMemo(
+    () =>
+      availableICCProfiles.filter(
+        (profile) =>
+          getProfileColorModel(profile) === selectedImageColorModelRight,
+      ),
+    [availableICCProfiles, selectedImageColorModelRight],
+  );
+
+  const activeSelectedICCProfileNameLeft = useMemo(
+    () =>
+      availableICCProfilesLeft.some(
+        (profile) => profile.label === selectedICCProfileNameLeft,
+      )
+        ? selectedICCProfileNameLeft
+        : "",
+    [availableICCProfilesLeft, selectedICCProfileNameLeft],
+  );
+
+  const activeSelectedICCProfileNameRight = useMemo(
+    () =>
+      availableICCProfilesRight.some(
+        (profile) => profile.label === selectedICCProfileNameRight,
+      )
+        ? selectedICCProfileNameRight
+        : "",
+    [availableICCProfilesRight, selectedICCProfileNameRight],
+  );
+
+  const areBothImagesSelected = Boolean(
+    selectedImageIdLeft && selectedImageIdRight,
+  );
+
+  const hasPipetteData = Boolean(
+    convertedPixelDataBySide.left && convertedPixelDataBySide.right,
   );
 
   const addImages = async (imgs: File[]) => {
@@ -111,6 +236,27 @@ export const MainPage = () => {
       return [...prev, ...loadedImgs.filter((x) => !seen.has(x.id))];
     });
   };
+
+  function clearSideResult(side: "left" | "right") {
+    if (side === "left") {
+      setConvertedImageLeftUrl((prevUrl) => {
+        if (prevUrl) URL.revokeObjectURL(prevUrl);
+        return "";
+      });
+      setConvertedPixelDataBySide((prev) => ({ ...prev, left: null }));
+      setConversionErrorLeft("");
+      setIsConvertingLeft(false);
+      return;
+    }
+
+    setConvertedImageRightUrl((prevUrl) => {
+      if (prevUrl) URL.revokeObjectURL(prevUrl);
+      return "";
+    });
+    setConvertedPixelDataBySide((prev) => ({ ...prev, right: null }));
+    setConversionErrorRight("");
+    setIsConvertingRight(false);
+  }
 
   useEffect(() => {
     const worker = new Worker(
@@ -178,6 +324,15 @@ export const MainPage = () => {
       if (target === "left") {
         setConversionErrorLeft("");
         setIsConvertingLeft(false);
+        setConvertedPixelDataBySide((prev) => ({
+          ...prev,
+          left: {
+            rgb: message.rgb,
+            lab: message.lab,
+            width: message.width,
+            height: message.height,
+          },
+        }));
         setConvertedImageLeftUrl((prevUrl) => {
           if (prevUrl) URL.revokeObjectURL(prevUrl);
           return nextUrl;
@@ -185,6 +340,15 @@ export const MainPage = () => {
       } else {
         setConversionErrorRight("");
         setIsConvertingRight(false);
+        setConvertedPixelDataBySide((prev) => ({
+          ...prev,
+          right: {
+            rgb: message.rgb,
+            lab: message.lab,
+            width: message.width,
+            height: message.height,
+          },
+        }));
         setConvertedImageRightUrl((prevUrl) => {
           if (prevUrl) URL.revokeObjectURL(prevUrl);
           return nextUrl;
@@ -200,25 +364,6 @@ export const MainPage = () => {
       conversionWorkerRef.current = null;
     };
   }, []);
-
-  const clearSideResult = (side: "left" | "right") => {
-    if (side === "left") {
-      setConvertedImageLeftUrl((prevUrl) => {
-        if (prevUrl) URL.revokeObjectURL(prevUrl);
-        return "";
-      });
-      setConversionErrorLeft("");
-      setIsConvertingLeft(false);
-      return;
-    }
-
-    setConvertedImageRightUrl((prevUrl) => {
-      if (prevUrl) URL.revokeObjectURL(prevUrl);
-      return "";
-    });
-    setConversionErrorRight("");
-    setIsConvertingRight(false);
-  };
 
   const triggerConversionForSide = (
     side: "left" | "right",
@@ -280,115 +425,14 @@ export const MainPage = () => {
 
   return (
     <>
-      <Flex paddingLeft="10" direction="column" gap={16}>
+      <Flex paddingLeft="10" direction="column" gap={4}>
         <Heading mt={5} mb={5}>
           GMG SOFTPROOFER
         </Heading>
         <Flex flexDirection={"row"} gap={16}>
           <Section>
-            <Flex gap="10" direction="column" width="1200">
-              <Flex gap="16" direction="row" wrap="wrap">
-                <ICCProfileSelector
-                  selectedICCProfileName={selectedICCProfileNameLeft}
-                  handleChange={(value) => {
-                    setSelectedICCProfileNameLeft(value);
-                    triggerConversionForSide(
-                      "left",
-                      selectedImageIdLeft,
-                      value,
-                    );
-                  }}
-                  availableICCProfiles={availableICCProfiles}
-                  label="Profile 1"
-                  placeholder="Select profile for image 1"
-                />
-                <ICCProfileSelector
-                  selectedICCProfileName={selectedICCProfileNameRight}
-                  handleChange={(value) => {
-                    setSelectedICCProfileNameRight(value);
-                    triggerConversionForSide(
-                      "right",
-                      selectedImageIdRight,
-                      value,
-                    );
-                  }}
-                  availableICCProfiles={availableICCProfiles}
-                  label="Profile 2"
-                  placeholder="Select profile for image 2"
-                />
-                <ICCProfileUploader
-                  label="CMYK profiles"
-                  buttonLabel="Upload CMYK profile"
-                  handleFileChange={async (newProfiles: File[]) => {
-                    const newItems = await Promise.all(
-                      newProfiles.map(async (f) => {
-                        const buffer = await f.arrayBuffer();
-                        return {
-                          label: f.name,
-                          bytes: new Uint8Array(buffer),
-                        };
-                      }),
-                    );
-
-                    setAvailableICCProfiles((prev) => {
-                      const seen = new Set(prev.map((x) => x.label));
-                      return [
-                        ...prev,
-                        ...newItems.filter((x) => !seen.has(x.label)),
-                      ];
-                    });
-                  }}
-                />
-              </Flex>
-              <Flex gap="16" direction="row" wrap="wrap">
-                <ICCProfileSelector
-                  selectedICCProfileName={selectedMonitorProfileName}
-                  handleChange={(value) => {
-                    setSelectedMonitorProfileName(value);
-                    triggerConversionForSide(
-                      "left",
-                      selectedImageIdLeft,
-                      selectedICCProfileNameLeft,
-                      value,
-                    );
-                    triggerConversionForSide(
-                      "right",
-                      selectedImageIdRight,
-                      selectedICCProfileNameRight,
-                      value,
-                    );
-                  }}
-                  availableICCProfiles={loadedMonitorProfiles}
-                  label="Monitor profile (optional)"
-                  placeholder="No monitor profile"
-                />
-                <ICCProfileUploader
-                  label="Monitor profiles"
-                  buttonLabel="Upload monitor profile"
-                  handleFileChange={async (newProfiles: File[]) => {
-                    const newItems = await Promise.all(
-                      newProfiles.map(async (f) => {
-                        const buffer = await f.arrayBuffer();
-                        return {
-                          label: f.name,
-                          bytes: new Uint8Array(buffer),
-                        };
-                      }),
-                    );
-
-                    setAvailableMonitorProfiles((prev) => {
-                      const seen = new Set(prev.map((x) => x.label));
-                      return [
-                        ...prev,
-                        ...newItems.filter((x) => !seen.has(x.label)),
-                      ];
-                    });
-                  }}
-                />
-              </Flex>
-            </Flex>
             <ImageUploader handleFileChange={addImages}></ImageUploader>
-            <Flex direction="row" gap={16} wrap="wrap">
+            <Flex direction="row" gap={4} wrap="wrap">
               <ImageSelector
                 selectedImageId={selectedImageIdLeft || ""}
                 handleChange={(selectedImageId: string) => {
@@ -396,7 +440,7 @@ export const MainPage = () => {
                   triggerConversionForSide(
                     "left",
                     selectedImageId,
-                    selectedICCProfileNameLeft,
+                    activeSelectedICCProfileNameLeft,
                   );
                 }}
                 availableImages={loadedImages.map((img) => ({
@@ -413,7 +457,7 @@ export const MainPage = () => {
                   triggerConversionForSide(
                     "right",
                     selectedImageId,
-                    selectedICCProfileNameRight,
+                    activeSelectedICCProfileNameRight,
                   );
                 }}
                 availableImages={loadedImages.map((img) => ({
@@ -424,37 +468,207 @@ export const MainPage = () => {
                 placeholder="Select image for profile 2"
               />
             </Flex>
-            <Checkbox
-              checked={gamutWarningEnabled}
-              onCheckedChange={(details) => {
-                const nextGamutWarningEnabled = details.checked === true;
-                setGamutWarningEnabled(nextGamutWarningEnabled);
-                triggerConversionForSide(
-                  "left",
-                  selectedImageIdLeft,
-                  selectedICCProfileNameLeft,
-                  selectedMonitorProfileName,
-                  nextGamutWarningEnabled,
-                );
-                triggerConversionForSide(
-                  "right",
-                  selectedImageIdRight,
-                  selectedICCProfileNameRight,
-                  selectedMonitorProfileName,
-                  nextGamutWarningEnabled,
-                );
-              }}
-            >
-              Enable gamut warning
-            </Checkbox>
-          </Section>
-          <Section $width={"1230px"}>
-            <div>
-              {convertedImageLeftUrl && convertedImageRightUrl ? (
-                <ImageCompare
-                  selectedImageLeftUrl={convertedImageLeftUrl}
-                  selectedImageRightUrl={convertedImageRightUrl}
+            <Flex direction="column" width="1200">
+              {areBothImagesSelected ? (
+                <>
+                  <Flex paddingTop={5}>
+                    <ICCProfileUploader
+                      buttonLabel="Upload profile"
+                      handleFileChange={async (newProfiles: File[]) => {
+                        const newItems = await Promise.all(
+                          newProfiles.map(async (f) => {
+                            const buffer = await f.arrayBuffer();
+                            return {
+                              label: f.name,
+                              bytes: new Uint8Array(buffer),
+                            };
+                          }),
+                        );
+
+                        setAvailableICCProfiles((prev) => {
+                          const seen = new Set(prev.map((x) => x.label));
+                          return [
+                            ...prev,
+                            ...newItems.filter((x) => !seen.has(x.label)),
+                          ];
+                        });
+                      }}
+                    />
+                  </Flex>
+                  <Flex
+                    gap="4"
+                    direction="row"
+                    aria-label="profile uploader and selector"
+                  >
+                    <ICCProfileSelector
+                      selectedICCProfileName={activeSelectedICCProfileNameLeft}
+                      handleChange={(value) => {
+                        setSelectedICCProfileNameLeft(value);
+                        triggerConversionForSide(
+                          "left",
+                          selectedImageIdLeft,
+                          value,
+                        );
+                      }}
+                      availableICCProfiles={availableICCProfilesLeft}
+                      label="Profile 1"
+                      placeholder="Select profile for image 1"
+                    />
+                    <ICCProfileSelector
+                      selectedICCProfileName={activeSelectedICCProfileNameRight}
+                      handleChange={(value) => {
+                        setSelectedICCProfileNameRight(value);
+                        triggerConversionForSide(
+                          "right",
+                          selectedImageIdRight,
+                          value,
+                        );
+                      }}
+                      availableICCProfiles={availableICCProfilesRight}
+                      label="Profile 2"
+                      placeholder="Select profile for image 2"
+                    />
+                  </Flex>
+                </>
+              ) : null}
+              <Flex gap="4" direction="row" paddingTop={10}>
+                <ICCProfileSelector //monitor profile
+                  selectedICCProfileName={selectedMonitorProfileName}
+                  handleChange={(value) => {
+                    setSelectedMonitorProfileName(value);
+                    triggerConversionForSide(
+                      "left",
+                      selectedImageIdLeft,
+                      activeSelectedICCProfileNameLeft,
+                      value,
+                    );
+                    triggerConversionForSide(
+                      "right",
+                      selectedImageIdRight,
+                      activeSelectedICCProfileNameRight,
+                      value,
+                    );
+                  }}
+                  availableICCProfiles={loadedMonitorProfiles}
+                  label="Monitor profile (optional)"
+                  placeholder="No monitor profile"
                 />
+
+                <Flex paddingTop={4.5}>
+                  <ICCProfileUploader
+                    handleFileChange={async (newProfiles: File[]) => {
+                      const newItems = await Promise.all(
+                        newProfiles.map(async (f) => {
+                          const buffer = await f.arrayBuffer();
+                          return {
+                            label: f.name,
+                            bytes: new Uint8Array(buffer),
+                          };
+                        }),
+                      );
+
+                      setAvailableMonitorProfiles((prev) => {
+                        const seen = new Set(prev.map((x) => x.label));
+                        return [
+                          ...prev,
+                          ...newItems.filter((x) => !seen.has(x.label)),
+                        ];
+                      });
+                    }}
+                  />
+                </Flex>
+              </Flex>
+              <Box
+                mt={6}
+                p={3}
+              >
+                <Flex gap={6}>
+                  <Flex direction="column" gap={2} minW="120px">
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                      <PipetteLabel>L*:</PipetteLabel>
+                      <PipetteValueBox>
+                        {pipetteValue ? pipetteValue.lab[0].toFixed(2) : ""}
+                      </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                      <PipetteLabel>a*:</PipetteLabel>
+                      <PipetteValueBox>
+                        {pipetteValue ? pipetteValue.lab[1].toFixed(2) : ""}
+                      </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                      <PipetteLabel>b*:</PipetteLabel>
+                      <PipetteValueBox>
+                        {pipetteValue ? pipetteValue.lab[2].toFixed(2) : ""}
+                      </PipetteValueBox>
+                    </Flex>
+                  </Flex>
+
+                  <Flex direction="column" gap={2} minW="120px">
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                      <PipetteLabel>R:</PipetteLabel>
+                      <PipetteValueBox>
+                        {pipetteValue ? String(pipetteValue.rgb[0]) : ""}
+                      </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                      <PipetteLabel>G:</PipetteLabel>
+                      <PipetteValueBox>
+                        {pipetteValue ? String(pipetteValue.rgb[1]) : ""}
+                      </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                      <PipetteLabel>B:</PipetteLabel>
+                      <PipetteValueBox>
+                        {pipetteValue ? String(pipetteValue.rgb[2]) : ""}
+                      </PipetteValueBox>
+                    </Flex>
+                  </Flex>
+                </Flex>
+                {!hasPipetteData ? (
+                  <Text mt={2} fontSize="xs" color="gray.500">
+                    Select images and profiles to enable pipette values.
+                  </Text>
+                ) : null}
+              </Box>
+            </Flex>
+          </Section>
+          <Section $width={"1230px"} $marginRight="50px">
+            <div style={{ alignSelf: "center" }}>
+              {convertedImageLeftUrl && convertedImageRightUrl ? (
+                <Flex direction="column" alignItems="center">
+                  <ImageCompare
+                    selectedImageLeftUrl={convertedImageLeftUrl}
+                    selectedImageRightUrl={convertedImageRightUrl}
+                    pixelDataBySide={convertedPixelDataBySide}
+                    onPipetteChange={setPipetteValue}
+                  />
+                  <Checkbox
+              
+                    paddingTop={5}
+                    checked={gamutWarningEnabled}
+                    onCheckedChange={(details) => {
+                      const nextGamutWarningEnabled = details.checked === true;
+                      setGamutWarningEnabled(nextGamutWarningEnabled);
+                      triggerConversionForSide(
+                        "left",
+                        selectedImageIdLeft,
+                        activeSelectedICCProfileNameLeft,
+                        selectedMonitorProfileName,
+                        nextGamutWarningEnabled,
+                      );
+                      triggerConversionForSide(
+                        "right",
+                        selectedImageIdRight,
+                        activeSelectedICCProfileNameRight,
+                        selectedMonitorProfileName,
+                        nextGamutWarningEnabled,
+                      );
+                    }}
+                  >
+                    Enable gamut warning
+                  </Checkbox>
+                </Flex>
               ) : (
                 <Text color="gray.500" mt="2">
                   Select two images and profiles to preview the transformed
@@ -487,15 +701,37 @@ export const MainPage = () => {
 const Section = styled.div<{
   $width?: string;
   $height?: string;
+  $marginRight?: string;
 }>`
   display: inline-flex;
   width: ${({ $width }) => $width ?? "auto"};
   height: ${({ $height }) => $height ?? "auto"};
   padding: 40px;
+  margin-right: ${({ $marginRight }) => $marginRight ?? "0px"};
   flex-direction: column;
   align-items: flex-start;
-  gap: 60px;
+  gap: 4px;
   background-color: #f2f2f2;
   border: 1px solid red;
   border-radius: 10px;
+`;
+
+const PipetteValueBox = styled.div`
+  min-width: 56px;
+  height: 24px;
+  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #eceff2;
+  border: 1px solid #d0d7de;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #4b5563;
+`;
+
+const PipetteLabel = styled(Text)`
+  width: 28px;
+  text-align: left;
+  font-weight: 600;
 `;

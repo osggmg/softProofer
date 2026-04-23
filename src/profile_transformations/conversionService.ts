@@ -12,6 +12,7 @@ export interface ConvertImageOptions {
 
 export interface ConvertedImageResult {
   blob: Blob;
+  rgb: Uint8Array;
   lab: Uint16Array;
   mimeType: string;
   width: number;
@@ -328,6 +329,7 @@ export const convertImageAssetWithProfile = async (
   
   return {
     blob,
+    rgb,
     lab,
     mimeType: "image/png",
     width: imageAsset.width,
