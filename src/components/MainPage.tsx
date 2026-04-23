@@ -124,9 +124,7 @@ export const MainPage = () => {
     useState<string>("");
   const [convertedImageRightUrl, setConvertedImageRightUrl] =
     useState<string>("");
-  const [convertedPixelDataBySide, setConvertedPixelDataBySide] = useState<
-    ConvertedPixelDataBySide
-  >({ left: null, right: null });
+
 
   const [conversionErrorLeft, setConversionErrorLeft] = useState<string>("");
   const [conversionErrorRight, setConversionErrorRight] = useState<string>("");
@@ -214,9 +212,6 @@ export const MainPage = () => {
     selectedImageIdLeft && selectedImageIdRight,
   );
 
-  const hasPipetteData = Boolean(
-    convertedPixelDataBySide.left && convertedPixelDataBySide.right,
-  );
 
   const addImages = async (imgs: File[]) => {
     const loadedImgs = await Promise.all(
@@ -243,7 +238,7 @@ export const MainPage = () => {
         if (prevUrl) URL.revokeObjectURL(prevUrl);
         return "";
       });
-      setConvertedPixelDataBySide((prev) => ({ ...prev, left: null }));
+     
       setConversionErrorLeft("");
       setIsConvertingLeft(false);
       return;
@@ -253,7 +248,7 @@ export const MainPage = () => {
       if (prevUrl) URL.revokeObjectURL(prevUrl);
       return "";
     });
-    setConvertedPixelDataBySide((prev) => ({ ...prev, right: null }));
+   
     setConversionErrorRight("");
     setIsConvertingRight(false);
   }
@@ -324,15 +319,7 @@ export const MainPage = () => {
       if (target === "left") {
         setConversionErrorLeft("");
         setIsConvertingLeft(false);
-        setConvertedPixelDataBySide((prev) => ({
-          ...prev,
-          left: {
-            rgb: message.rgb,
-            lab: message.lab,
-            width: message.width,
-            height: message.height,
-          },
-        }));
+       
         setConvertedImageLeftUrl((prevUrl) => {
           if (prevUrl) URL.revokeObjectURL(prevUrl);
           return nextUrl;
@@ -340,15 +327,7 @@ export const MainPage = () => {
       } else {
         setConversionErrorRight("");
         setIsConvertingRight(false);
-        setConvertedPixelDataBySide((prev) => ({
-          ...prev,
-          right: {
-            rgb: message.rgb,
-            lab: message.lab,
-            width: message.width,
-            height: message.height,
-          },
-        }));
+        
         setConvertedImageRightUrl((prevUrl) => {
           if (prevUrl) URL.revokeObjectURL(prevUrl);
           return nextUrl;
@@ -625,11 +604,7 @@ export const MainPage = () => {
                     </Flex>
                   </Flex>
                 </Flex>
-                {!hasPipetteData ? (
-                  <Text mt={2} fontSize="xs" color="gray.500">
-                    Select images and profiles to enable pipette values.
-                  </Text>
-                ) : null}
+                
               </Box>
             </Flex>
           </Section>
@@ -640,7 +615,6 @@ export const MainPage = () => {
                   <ImageCompare
                     selectedImageLeftUrl={convertedImageLeftUrl}
                     selectedImageRightUrl={convertedImageRightUrl}
-                    pixelDataBySide={convertedPixelDataBySide}
                     onPipetteChange={setPipetteValue}
                   />
                   <Checkbox
