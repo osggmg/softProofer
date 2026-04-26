@@ -21,6 +21,7 @@ import {
 } from "../default_profiles_and_images/default_profiles/default_cmyk_profiles";
 import { readDefaultImages } from "../default_profiles_and_images/default_profiles_and_images_utils";
 import styled from "styled-components";
+import Logo from "./ui/Logo";
 
 export interface ImageObject extends DecodedImage {
   id: string;
@@ -140,6 +141,8 @@ export const MainPage = () => {
   const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
   const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
 
+  const pixelDataRef = useRef<ConvertedPixelDataBySide>({ left: null, right: null });
+
   // Create the worker once and subscribe to its messages in a single effect.
   // Keeping both in one effect guarantees the worker exists before the listener
   // is attached, and is not terminated mid-cleanup by React Strict Mode.
@@ -233,6 +236,7 @@ export const MainPage = () => {
   };
 
   function clearSideResult(side: "left" | "right") {
+    pixelDataRef.current[side] = null;
     if (side === "left") {
       setConvertedImageLeftUrl((prevUrl) => {
         if (prevUrl) URL.revokeObjectURL(prevUrl);
@@ -313,7 +317,13 @@ export const MainPage = () => {
         return;
       }
 
-      console.log("[worker success] lab length:", message.lab.length); //here we have the lab (reference lab values to use later)
+      console.log("[worker success] lab length:", message.lab.length);
+      pixelDataRef.current[target] = {
+        rgb: message.rgb,
+        lab: message.lab,
+        width: message.width,
+        height: message.height,
+      };
       const nextUrl = URL.createObjectURL(message.blob);
 
       if (target === "left") {
@@ -406,7 +416,7 @@ export const MainPage = () => {
     <>
       <Flex paddingLeft="10" direction="column" gap={4}>
         <Heading mt={5} mb={5}>
-          GMG SOFTPROOFER
+          <Logo height={42} width={110} />
         </Heading>
         <Flex flexDirection={"row"} gap={16}>
           <Section>
@@ -615,6 +625,7 @@ export const MainPage = () => {
                   <ImageCompare
                     selectedImageLeftUrl={convertedImageLeftUrl}
                     selectedImageRightUrl={convertedImageRightUrl}
+                    pixelDataRef={pixelDataRef}
                     onPipetteChange={setPipetteValue}
                   />
                   <Checkbox
@@ -686,7 +697,6 @@ const Section = styled.div<{
   align-items: flex-start;
   gap: 4px;
   background-color: #f2f2f2;
-  border: 1px solid red;
   border-radius: 10px;
 `;
 

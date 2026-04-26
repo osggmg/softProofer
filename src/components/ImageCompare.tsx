@@ -12,10 +12,10 @@ interface PixelData {
 interface ImageCompareProps {
   selectedImageLeftUrl: string;
   selectedImageRightUrl: string;
-  pixelDataBySide: {
+  pixelDataRef: React.RefObject<{
     left: PixelData | null;
     right: PixelData | null;
-  };
+  }>;
   onPipetteChange: (value: PipetteValue | null) => void;
 }
 
@@ -61,7 +61,8 @@ export default function ImageCompare(props: ImageCompareProps) {
   const [sliderPosition, setSliderPosition] = useState(0.5);
 
   const handleMouseMove: React.MouseEventHandler<HTMLDivElement> = (event) => {
-    if (!props.pixelDataBySide.left || !props.pixelDataBySide.right) {
+    const data = props.pixelDataRef.current;
+    if (!data?.left || !data?.right) {
       props.onPipetteChange(null);
       return;
     }
@@ -73,7 +74,7 @@ export default function ImageCompare(props: ImageCompareProps) {
     const normalizedY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
     const side: "left" | "right" =
       normalizedX <= sliderPosition ? "left" : "right";
-    const activeData = props.pixelDataBySide[side];
+    const activeData = data[side];
     if (!activeData) return;
 
     const x = normalizedX * (activeData.width - 1);
