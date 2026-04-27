@@ -5,12 +5,13 @@ import { ICCProfileSelector } from "./ICCProfileSelector";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ImageCompare from "./ImageCompare";
 import { ImageUploader } from "./ImageUploader";
-import {
-  decodeImage,
-  type DecodedImage,
-} from "../profile_transformations/imageMagick";
+import { decodeImage } from "../profile_transformations/imageMagick";
 import { ImageSelector } from "./ImageSelector";
-import type { ICCProfile } from "../types/types";
+import type {
+  ConvertedPixelDataBySide,
+  ICCProfile,
+  PipetteValue,
+} from "../types/types";
 import type {
   ConvertImageWorkerMessage,
   ConvertImageWorkerRequest,
@@ -22,30 +23,7 @@ import {
 import { readDefaultImages } from "../default_profiles_and_images/default_profiles_and_images_utils";
 import styled from "styled-components";
 import Logo from "./ui/Logo";
-
-export interface ImageObject extends DecodedImage {
-  id: string;
-  label: string;
-}
-
-interface ConvertedPixelData {
-  rgb: Uint8Array;
-  lab: Uint16Array;
-  width: number;
-  height: number;
-}
-
-interface ConvertedPixelDataBySide {
-  left: ConvertedPixelData | null;
-  right: ConvertedPixelData | null;
-}
-
-interface PipetteValue {
-  x: number;
-  y: number;
-  rgb: [number, number, number];
-  lab: [number, number, number];
-}
+import { getImageColorModel, getProfileColorModel } from "../utils/utils";
 
 const defaultICCProfiles: ICCProfile[] = [
   { label: "eciCMYK_v2_basic_profile", bytes: eciCMYK_v2_basic_profile },
@@ -59,44 +37,10 @@ const defaultImages: ImageObject[] = await readDefaultImages();
 const NO_MONITOR_PROFILE_VALUE = "No monitor profile (optional)";
 
 const emptyMonitorProfileValue = { label: NO_MONITOR_PROFILE_VALUE };
-type ColorModel = "CMYK" | "RGB";
-
-const inferColorModelFromLabel = (label: string): ColorModel | null => {
-  const normalized = label.toUpperCase();
-  if (normalized.includes("CMYK")) return "CMYK";
-  if (normalized.includes("RGB") || normalized.includes("SRGB")) return "RGB";
-  return null;
-};
-
-const getImageColorModel = (image: ImageObject | null): ColorModel | null => {
-  if (!image) return null;
-
-  const normalizedColorSpace = image.colorSpace.toUpperCase();
-  if (normalizedColorSpace.includes("CMYK")) return "CMYK";
-  if (normalizedColorSpace.includes("RGB")) return "RGB";
-
-  const mapping = image.mapping?.toUpperCase();
-  if (mapping?.startsWith("CMYK")) return "CMYK";
-  if (mapping?.startsWith("RGB")) return "RGB";
-
-  return null;
-};
-
-const getProfileColorModel = (profile: ICCProfile): ColorModel | null => {
-  if (profile.bytes && profile.bytes.length >= 20) {
-    const signature = new TextDecoder("ascii")
-      .decode(profile.bytes.slice(16, 20))
-      .trim()
-      .toUpperCase();
-
-    if (signature === "CMYK") return "CMYK";
-    if (signature === "RGB") return "RGB";
-  }
-
-  return inferColorModelFromLabel(profile.label);
-};
 
 export const MainPage = () => {
+  //APP STATE
+
   const [selectedICCProfileNameLeft, setSelectedICCProfileNameLeft] =
     useState<string>("");
   const [selectedICCProfileNameRight, setSelectedICCProfileNameRight] =
@@ -126,28 +70,27 @@ export const MainPage = () => {
   const [convertedImageRightUrl, setConvertedImageRightUrl] =
     useState<string>("");
 
-
   const [conversionErrorLeft, setConversionErrorLeft] = useState<string>("");
   const [conversionErrorRight, setConversionErrorRight] = useState<string>("");
 
   const [isConvertingLeft, setIsConvertingLeft] = useState(false);
   const [isConvertingRight, setIsConvertingRight] = useState(false);
 
+  const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
+  const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
+
   const requestCounterRef = useRef(0);
   const activeRequestIdLeftRef = useRef(0);
   const activeRequestIdRightRef = useRef(0);
   const requestTargetRef = useRef<Map<number, "left" | "right">>(new Map());
-
-  const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
-  const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
-
-  const pixelDataRef = useRef<ConvertedPixelDataBySide>({ left: null, right: null });
-
-  // Create the worker once and subscribe to its messages in a single effect.
-  // Keeping both in one effect guarantees the worker exists before the listener
-  // is attached, and is not terminated mid-cleanup by React Strict Mode.
+  const pixelDataRef = useRef<ConvertedPixelDataBySide>({
+    left: null,
+    right: null,
+  });
+  //ref where the worker lives, create once on app start
   const conversionWorkerRef = useRef<Worker | null>(null);
 
+  //useMemos
   const loadedMonitorProfiles = useMemo(
     () => [emptyMonitorProfileValue, ...availableMonitorProfiles],
     [availableMonitorProfiles],
@@ -215,7 +158,6 @@ export const MainPage = () => {
     selectedImageIdLeft && selectedImageIdRight,
   );
 
-
   const addImages = async (imgs: File[]) => {
     const loadedImgs = await Promise.all(
       imgs.map(async (f) => {
@@ -242,7 +184,7 @@ export const MainPage = () => {
         if (prevUrl) URL.revokeObjectURL(prevUrl);
         return "";
       });
-     
+
       setConversionErrorLeft("");
       setIsConvertingLeft(false);
       return;
@@ -252,11 +194,70 @@ export const MainPage = () => {
       if (prevUrl) URL.revokeObjectURL(prevUrl);
       return "";
     });
-   
+
     setConversionErrorRight("");
     setIsConvertingRight(false);
   }
 
+  const triggerConversionForSide = (
+    side: "left" | "right",
+    imageId: string | null,
+    cmykProfileName: string,
+    monitorProfileName: string = selectedMonitorProfileName,
+    nextGamutWarningEnabled: boolean = gamutWarningEnabled,
+  ) => {
+    const selectedImage =
+      loadedImages.find((img) => img.id === imageId) ?? null;
+    const selectedICCProfile =
+      availableICCProfiles.find((p) => p.label === cmykProfileName) ?? null;
+    const selectedMonitorProfile =
+      monitorProfileName === NO_MONITOR_PROFILE_VALUE
+        ? null
+        : (availableMonitorProfiles.find(
+            (p) => p.label === monitorProfileName,
+          ) ?? null);
+
+    if (!selectedImage || !selectedICCProfile?.bytes) {
+      clearSideResult(side);
+      return;
+    }
+
+    requestCounterRef.current += 1;
+    const requestId = requestCounterRef.current;
+    requestTargetRef.current.set(requestId, side);
+
+    if (side === "left") {
+      activeRequestIdLeftRef.current = requestId;
+      setIsConvertingLeft(true);
+      setConversionErrorLeft("");
+    } else {
+      activeRequestIdRightRef.current = requestId;
+      setIsConvertingRight(true);
+      setConversionErrorRight("");
+    }
+
+    const request: ConvertImageWorkerRequest = {
+      type: "convert",
+      requestId,
+      imageAsset: {
+        width: selectedImage.width,
+        height: selectedImage.height,
+        data: selectedImage.data,
+        mapping: selectedImage.mapping,
+      },
+      cmykProfileBytes: selectedICCProfile.bytes,
+      rgbProfileBytes: selectedMonitorProfile?.bytes ?? null,
+      options: {
+        outputFormat: "png",
+        preserveAlpha: false,
+        gamutWarningEnabled: nextGamutWarningEnabled,
+      },
+    };
+
+    conversionWorkerRef.current?.postMessage(request);
+  };
+
+  //worker main useEffect
   useEffect(() => {
     const worker = new Worker(
       new URL(
@@ -329,7 +330,7 @@ export const MainPage = () => {
       if (target === "left") {
         setConversionErrorLeft("");
         setIsConvertingLeft(false);
-       
+
         setConvertedImageLeftUrl((prevUrl) => {
           if (prevUrl) URL.revokeObjectURL(prevUrl);
           return nextUrl;
@@ -337,7 +338,7 @@ export const MainPage = () => {
       } else {
         setConversionErrorRight("");
         setIsConvertingRight(false);
-        
+
         setConvertedImageRightUrl((prevUrl) => {
           if (prevUrl) URL.revokeObjectURL(prevUrl);
           return nextUrl;
@@ -354,64 +355,6 @@ export const MainPage = () => {
     };
   }, []);
 
-  const triggerConversionForSide = (
-    side: "left" | "right",
-    imageId: string | null,
-    cmykProfileName: string,
-    monitorProfileName: string = selectedMonitorProfileName,
-    nextGamutWarningEnabled: boolean = gamutWarningEnabled,
-  ) => {
-    const selectedImage =
-      loadedImages.find((img) => img.id === imageId) ?? null;
-    const selectedICCProfile =
-      availableICCProfiles.find((p) => p.label === cmykProfileName) ?? null;
-    const selectedMonitorProfile =
-      monitorProfileName === NO_MONITOR_PROFILE_VALUE
-        ? null
-        : (availableMonitorProfiles.find(
-            (p) => p.label === monitorProfileName,
-          ) ?? null);
-
-    if (!selectedImage || !selectedICCProfile?.bytes) {
-      clearSideResult(side);
-      return;
-    }
-
-    requestCounterRef.current += 1;
-    const requestId = requestCounterRef.current;
-    requestTargetRef.current.set(requestId, side);
-
-    if (side === "left") {
-      activeRequestIdLeftRef.current = requestId;
-      setIsConvertingLeft(true);
-      setConversionErrorLeft("");
-    } else {
-      activeRequestIdRightRef.current = requestId;
-      setIsConvertingRight(true);
-      setConversionErrorRight("");
-    }
-
-    const request: ConvertImageWorkerRequest = {
-      type: "convert",
-      requestId,
-      imageAsset: {
-        width: selectedImage.width,
-        height: selectedImage.height,
-        data: selectedImage.data,
-        mapping: selectedImage.mapping,
-      },
-      cmykProfileBytes: selectedICCProfile.bytes,
-      rgbProfileBytes: selectedMonitorProfile?.bytes ?? null,
-      options: {
-        outputFormat: "png",
-        preserveAlpha: false,
-        gamutWarningEnabled: nextGamutWarningEnabled,
-      },
-    };
-
-    conversionWorkerRef.current?.postMessage(request);
-  };
-
   return (
     <>
       <Flex paddingLeft="10" direction="column" gap={4}>
@@ -420,7 +363,7 @@ export const MainPage = () => {
         </Heading>
         <Flex flexDirection={"row"} gap={16}>
           <Section>
-            <ImageUploader handleFileChange={addImages}></ImageUploader>
+            <ImageUploader handleFileChange={addImages}/>
             <Flex direction="row" gap={4} wrap="wrap">
               <ImageSelector
                 selectedImageId={selectedImageIdLeft || ""}
@@ -567,10 +510,7 @@ export const MainPage = () => {
                   />
                 </Flex>
               </Flex>
-              <Box
-                mt={6}
-                p={3}
-              >
+              <Box mt={6} p={3}>
                 <Flex gap={6}>
                   <Flex direction="column" gap={2} minW="120px">
                     <Flex align="center" gap={2} alignItems={"flex-end"}>
@@ -614,7 +554,6 @@ export const MainPage = () => {
                     </Flex>
                   </Flex>
                 </Flex>
-                
               </Box>
             </Flex>
           </Section>
@@ -629,7 +568,6 @@ export const MainPage = () => {
                     onPipetteChange={setPipetteValue}
                   />
                   <Checkbox
-              
                     paddingTop={5}
                     checked={gamutWarningEnabled}
                     onCheckedChange={(details) => {
