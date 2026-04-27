@@ -29,7 +29,7 @@ export interface ConversionImageAsset {
 const LAB_L_SCALE = 100.0 / 65535.0;
 const LAB_AB_SCALE = 255.0 / 65535.0;
 
-const TOLERANCE_DELTA = 2;
+const TOLERANCE_DELTA = 0.5;
 
 const deltaE76Squared = (
   l1: number,
@@ -146,7 +146,7 @@ function createGamutCheckMask(
   delta: number,
   rgbProfileBytes: Uint8Array | null,
 ): Uint8Array {
-  const USE_DE2000 = false;
+  const USE_DE2000 = true;
   const newLAB = RGBtoLAB(rgbInput, rgbProfileBytes);
 
   const pixelCount = labInput.length / 3;
@@ -301,6 +301,7 @@ export const convertImageAssetWithProfile = async (
   }
 
   const mask = createGamutCheckMask(rgb, lab, TOLERANCE_DELTA, rgbProfileBytes);
+  console.log(mask)
 
   if (gamutWarningEnabled) {
     const [wr, wg, wb] = options.gamutWarningColor ?? [255, 0, 255];

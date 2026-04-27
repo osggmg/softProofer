@@ -90,8 +90,8 @@ const createRGBToLabTransform = (rgbProfileHandle?: number) => {
     TYPE_RGB_8,
     labProfile,
     TYPE_Lab_16,
-    INTENT_RELATIVE_COLORIMETRIC,
-    0,
+    INTENT_ABSOLUTE_COLORIMETRIC,
+    0x0100,
   );
 
   if (!transform) {
@@ -110,8 +110,8 @@ const createLABToRGBTransform = (rgbProfileHandle?: number) => {
     TYPE_Lab_16,
     rgbProfile,
     TYPE_RGB_8,
-    INTENT_RELATIVE_COLORIMETRIC,
-    0,
+    INTENT_ABSOLUTE_COLORIMETRIC,
+    0x0100,
   );
 
   if (!transform) {
