@@ -9,6 +9,8 @@ const ICC_COLORANT_TABLE_RECORD_SIZE =
   ICC_COLORANT_NAME_LENGTH + ICC_COLORANT_TABLE_PCS_COORDS_SIZE;
 
 type CMYKChannel = "C" | "M" | "Y" | "K";
+const ICC_DATA_COLOR_SPACE_OFFSET = 16;
+const ICC_DATA_COLOR_SPACE_SIZE = 4;
 
 const readUint32BE = (bytes: Uint8Array, offset: number): number => {
   if (offset < 0 || offset + 4 > bytes.length) {
@@ -47,6 +49,37 @@ const decodeAsciiTrimmed = (bytes: Uint8Array): string => {
   }
 
   return text.trim();
+};
+
+const getChannelCountFromSignature = (signature: string): number | null => {
+  if (signature === "CMYK") return 4;
+
+  const genericColorSpaceMatch = signature.match(/^([1-9A-F])CLR$/);
+  if (genericColorSpaceMatch) {
+    return parseInt(genericColorSpaceMatch[1], 16);
+  }
+
+  const multiChannelMatch = signature.match(/^MCH([1-9A-F])$/);
+  if (multiChannelMatch) {
+    return parseInt(multiChannelMatch[1], 16);
+  }
+
+  return null;
+};
+
+export const getIccInputChannelCount = (iccBytes: Uint8Array): number | null => {
+  if (iccBytes.length < ICC_DATA_COLOR_SPACE_OFFSET + ICC_DATA_COLOR_SPACE_SIZE) {
+    return null;
+  }
+
+  const signature = decodeAsciiTrimmed(
+    iccBytes.subarray(
+      ICC_DATA_COLOR_SPACE_OFFSET,
+      ICC_DATA_COLOR_SPACE_OFFSET + ICC_DATA_COLOR_SPACE_SIZE,
+    ),
+  ).toUpperCase();
+
+  return getChannelCountFromSignature(signature);
 };
 
 const normalizeColorantName = (name: string): CMYKChannel | null => {
@@ -213,73 +246,131 @@ export const getClrtColorantOrder = (
   return order;
 };
 
-const buildCmykToProfileChannelMap = (
-  profileOrder: CMYKChannel[],
+export const getCmykSlotMapFromClrt = (
+  iccBytes: Uint8Array,
 ): [number, number, number, number] | null => {
-  const channelToInputIndex: Record<CMYKChannel, number> = {
-    C: 0,
-    M: 1,
-    Y: 2,
-    K: 3,
-  };
-
-  if (profileOrder.length !== 4) {
+  const clrtTag = findClrtTag(iccBytes);
+  if (!clrtTag) {
     return null;
   }
 
-  return [
-    channelToInputIndex[profileOrder[0]],
-    channelToInputIndex[profileOrder[1]],
-    channelToInputIndex[profileOrder[2]],
-    channelToInputIndex[profileOrder[3]],
-  ];
+  const { offset, size } = clrtTag;
+  if (offset + size > iccBytes.length || size < ICC_COLORANT_TABLE_BASE_SIZE) {
+    return null;
+  }
+
+  const colorantCount = readUint32BE(iccBytes, offset + 8);
+  if (colorantCount < 4) {
+    return null;
+  }
+
+  const recordsStart = offset + ICC_COLORANT_TABLE_BASE_SIZE;
+  const slots: Partial<Record<CMYKChannel, number>> = {};
+
+  for (let i = 0; i < colorantCount; i++) {
+    const recordOffset = recordsStart + i * ICC_COLORANT_TABLE_RECORD_SIZE;
+    const recordEnd = recordOffset + ICC_COLORANT_TABLE_RECORD_SIZE;
+
+    if (recordEnd > offset + size || recordEnd > iccBytes.length) {
+      return null;
+    }
+
+    const nameBytes = iccBytes.subarray(
+      recordOffset,
+      recordOffset + ICC_COLORANT_NAME_LENGTH,
+    );
+    const name = decodeAsciiTrimmed(nameBytes);
+    const channel = normalizeColorantName(name);
+
+    if (!channel) {
+      continue;
+    }
+
+    if (slots[channel] !== undefined) {
+      console.log(`${LOG_PREFIX} duplicate '${channel}' colorant in clrt; cannot build slot map`);
+      return null;
+    }
+
+    slots[channel] = i;
+  }
+
+  if (
+    slots.C === undefined ||
+    slots.M === undefined ||
+    slots.Y === undefined ||
+    slots.K === undefined
+  ) {
+    console.log(`${LOG_PREFIX} clrt does not contain complete C/M/Y/K set`);
+    return null;
+  }
+
+  console.log(
+    `${LOG_PREFIX} clrt slot map: C->${slots.C}, M->${slots.M}, Y->${slots.Y}, K->${slots.K}`,
+  );
+  return [slots.C, slots.M, slots.Y, slots.K];
 };
 
 export const mapCmykToProfileColorantOrder = (
   input: Uint16Array,
   iccBytes: Uint8Array,
-): Uint16Array => {
+): { mappedInput: Uint16Array; profileChannelsPerPixel: number } => {
   if (input.length % 4 !== 0) {
     throw new Error(
       `Invalid CMYK input length ${input.length}. Expected 4 channels per pixel.`,
     );
   }
 
-  const sourceOrder = getClrtColorantOrder(iccBytes);
-  if (!sourceOrder) {
-    console.log(`${LOG_PREFIX} leaving input unchanged (no valid clrt order)`);
-    return input;
+  const profileChannelsPerPixel = getIccInputChannelCount(iccBytes);
+  if (!profileChannelsPerPixel) {
+    throw new Error("Could not determine profile channel count from ICC signature.");
   }
 
-  const channelMap = buildCmykToProfileChannelMap(sourceOrder);
-  if (!channelMap) {
-    console.log(`${LOG_PREFIX} leaving input unchanged (invalid channel map)`);
-    return input;
+  if (profileChannelsPerPixel < 4 || profileChannelsPerPixel > 7) {
+    throw new Error(
+      `Unsupported profile channel count ${profileChannelsPerPixel}. Supported range is 4 to 7 channels.`,
+    );
+  }
+
+  const pixelCount = input.length / 4;
+  const cmykSlots = getCmykSlotMapFromClrt(iccBytes);
+
+  if (!cmykSlots) {
+    if (profileChannelsPerPixel === 4) {
+      console.log(`${LOG_PREFIX} no clrt slot map; assuming CMYK input order`);
+      return { mappedInput: input, profileChannelsPerPixel };
+    }
+
+    throw new Error(
+      `Profile has ${profileChannelsPerPixel} channels but clrt does not provide a full C/M/Y/K mapping.`,
+    );
   }
 
   console.log(
-    `${LOG_PREFIX} CMYK->profile map: slot0<=${channelMap[0]}, slot1<=${channelMap[1]}, slot2<=${channelMap[2]}, slot3<=${channelMap[3]}`,
+    `${LOG_PREFIX} applying CMYK slots C->${cmykSlots[0]}, M->${cmykSlots[1]}, Y->${cmykSlots[2]}, K->${cmykSlots[3]} into ${profileChannelsPerPixel} channels`,
   );
 
   if (
-    channelMap[0] === 0 &&
-    channelMap[1] === 1 &&
-    channelMap[2] === 2 &&
-    channelMap[3] === 3
+    profileChannelsPerPixel === 4 &&
+    cmykSlots[0] === 0 &&
+    cmykSlots[1] === 1 &&
+    cmykSlots[2] === 2 &&
+    cmykSlots[3] === 3
   ) {
     console.log(`${LOG_PREFIX} profile already uses CMYK order`);
-    return input;
+    return { mappedInput: input, profileChannelsPerPixel };
   }
 
-  const mapped = new Uint16Array(input.length);
+  const mapped = new Uint16Array(pixelCount * profileChannelsPerPixel);
 
-  for (let i = 0; i < input.length; i += 4) {
-    mapped[i] = input[i + channelMap[0]];
-    mapped[i + 1] = input[i + channelMap[1]];
-    mapped[i + 2] = input[i + channelMap[2]];
-    mapped[i + 3] = input[i + channelMap[3]];
+  for (let pixelIndex = 0; pixelIndex < pixelCount; pixelIndex++) {
+    const sourceBase = pixelIndex * 4;
+    const targetBase = pixelIndex * profileChannelsPerPixel;
+    mapped[targetBase + cmykSlots[0]] = input[sourceBase];
+    mapped[targetBase + cmykSlots[1]] = input[sourceBase + 1];
+    mapped[targetBase + cmykSlots[2]] = input[sourceBase + 2];
+    mapped[targetBase + cmykSlots[3]] = input[sourceBase + 3];
   }
 
-  console.log(`${LOG_PREFIX} applied clrt-based remap to profile order`);
-  return mapped;
+  console.log(`${LOG_PREFIX} applied clrt-based CMYK slot mapping`);
+  return { mappedInput: mapped, profileChannelsPerPixel };
 };

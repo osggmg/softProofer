@@ -1,7 +1,7 @@
 import { LcmsService } from "./lcmsService";
 import { lcms } from "./lcmsSingleton";
 import {
-  getClrtColorantOrder,
+  getIccInputChannelCount,
   logClrtTag,
   mapCmykToProfileColorantOrder,
 } from "./channelMapping.ts";
@@ -80,6 +80,83 @@ const createCmykToLabTransform = (cmykProfileHandle: number) => {
   return transform;
 };
 
+const profileInputToLab = (
+  input: Uint16Array,
+  profileBytes: Uint8Array,
+  channelsPerPixel: number,
+) => {
+  if (input.length % channelsPerPixel !== 0) {
+    throw new Error(
+      `Invalid input length ${input.length}. Expected ${channelsPerPixel} channels per pixel.`,
+    );
+  }
+
+  const profileInputChannels = getIccInputChannelCount(profileBytes);
+  if (!profileInputChannels) {
+    throw new Error("Could not determine profile input channel count.");
+  }
+
+  if (profileInputChannels !== channelsPerPixel) {
+    throw new Error(
+      `Input channel count (${channelsPerPixel}) does not match profile input channel count (${profileInputChannels}).`,
+    );
+  }
+
+  const profileHandle = lcms.openProfileFromBytes(profileBytes);
+  if (!profileHandle) {
+    throw new Error("Could not open profile");
+  }
+
+  const transform = createCmykToLabTransform(profileHandle);
+  const pixelCount = input.length / channelsPerPixel;
+
+  try {
+    console.log(
+      `[ProfileInputToLab] transforming ${pixelCount} pixels using ${channelsPerPixel} channels`,
+    );
+    const output = new Uint16Array(pixelCount * 3);
+
+    for (
+      let pixelOffset = 0;
+      pixelOffset < pixelCount;
+      pixelOffset += TRANSFORM_CHUNK_PIXELS
+    ) {
+      const chunkPixels = Math.min(
+        TRANSFORM_CHUNK_PIXELS,
+        pixelCount - pixelOffset,
+      );
+      const inputStart = pixelOffset * channelsPerPixel;
+      const inputEnd = inputStart + chunkPixels * channelsPerPixel;
+      const chunkInput = input.subarray(inputStart, inputEnd);
+
+      const chunkOutput = lcms.doTransform(
+        transform,
+        chunkInput,
+        chunkPixels,
+      ) as Uint16Array;
+
+      if (chunkOutput.length !== chunkPixels * 3) {
+        throw new Error(
+          `Profile input to Lab output length mismatch. Expected ${chunkPixels * 3}, got ${chunkOutput.length}.`,
+        );
+      }
+
+      output.set(chunkOutput, pixelOffset * 3);
+    }
+
+    return output;
+  } finally {
+    lcms.deleteTransform(transform);
+    lcms.closeProfile(profileHandle);
+  }
+};
+
+export const ProfileInputToLAB = (
+  input: Uint16Array,
+  profileBytes: Uint8Array,
+  channelsPerPixel: number,
+) => profileInputToLab(input, profileBytes, channelsPerPixel);
+
 const createRGBToLabTransform = (rgbProfileHandle?: number) => {
   const rgbProfile = rgbProfileHandle ?? getSRGB();
   const labProfile = getLAB();
@@ -128,59 +205,12 @@ export const CMYKtoLAB = (input: Uint16Array, CMYKProfile: Uint8Array) => {
   }
 
   logClrtTag(CMYKProfile);
-  const profileOrder = getClrtColorantOrder(CMYKProfile);
-  if (profileOrder) {
-    console.log(`[CMYKtoLAB] profile order from clrt: ${profileOrder.join(" -> ")}`);
-  }
+  const { mappedInput, profileChannelsPerPixel } = mapCmykToProfileColorantOrder(
+    input,
+    CMYKProfile,
+  );
 
-  const mappedInput = mapCmykToProfileColorantOrder(input, CMYKProfile);
-
-  const cmykProfileHandle = lcms.openProfileFromBytes(CMYKProfile);
-
-  if (!cmykProfileHandle) {
-    throw new Error("Could not open CMYK profile");
-  }
-
-  const transform = createCmykToLabTransform(cmykProfileHandle);
-  const pixelCount = mappedInput.length / 4;
-
-  try {
-    console.log(`[CMYKtoLAB] transforming ${pixelCount} pixels`);
-    const output = new Uint16Array(pixelCount * 3);
-    //todo:  not sure if we need this chunking stuff. review
-    for (
-      let pixelOffset = 0;
-      pixelOffset < pixelCount;
-      pixelOffset += TRANSFORM_CHUNK_PIXELS
-    ) {
-      const chunkPixels = Math.min(
-        TRANSFORM_CHUNK_PIXELS,
-        pixelCount - pixelOffset,
-      );
-      const inputStart = pixelOffset * 4;
-      const inputEnd = inputStart + chunkPixels * 4;
-      const chunkInput = mappedInput.subarray(inputStart, inputEnd);
-
-      const chunkOutput = lcms.doTransform(
-        transform,
-        chunkInput,
-        chunkPixels,
-      ) as Uint16Array;
-
-      if (chunkOutput.length !== chunkPixels * 3) {
-        throw new Error(
-          `CMYK to Lab output length mismatch. Expected ${chunkPixels * 3}, got ${chunkOutput.length}.`,
-        );
-      }
-
-      output.set(chunkOutput, pixelOffset * 3);
-    }
-
-    return output;
-  } finally {
-    lcms.deleteTransform(transform);
-    lcms.closeProfile(cmykProfileHandle);
-  }
+  return profileInputToLab(mappedInput, CMYKProfile, profileChannelsPerPixel);
 };
 
 export const LABtoRGB = (input: Uint16Array, RGBProfileBytes?: Uint8Array) => {

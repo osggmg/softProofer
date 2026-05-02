@@ -30,6 +30,10 @@ export const getImageColorModel = (image: ImageObject | null): ColorModel | null
   if (mapping?.startsWith("CMYK")) return "CMYK";
   if (mapping?.startsWith("RGB")) return "RGB";
 
+  // For decoded multichannel images (often reported with unknown colorspace/mapping),
+  // treat 4-7 channels as CMYK-compatible so CMYK/multichannel profiles can be selected.
+  if (image.channelCount >= 4 && image.channelCount <= 7) return "CMYK";
+
   return null;
 };
 
@@ -37,7 +41,7 @@ export const inferColorModelFromLabel = (label: string): ColorModel | null => {
   const normalized = label.toUpperCase();
   if (normalized.includes("CMYK")) return "CMYK";
 
-  const hasCmykPermutation = normalized
+  const isCMYKLike = normalized
     .split(/[^A-Z]+/)
     .some(
       (token) =>
@@ -45,7 +49,7 @@ export const inferColorModelFromLabel = (label: string): ColorModel | null => {
         ["C", "M", "Y", "K"].every((channel) => token.includes(channel)),
     );
 
-  if (hasCmykPermutation) {
+  if (isCMYKLike) {
     return "CMYK";
   }
 
@@ -79,8 +83,11 @@ export const getProfileColorModel = (profile: ICCProfile): ColorModel | null => 
 
     if (signature === "RGB") return "RGB";
 
-    // Treat any 4-channel ICC profile as CMYK-compatible so channel mapping can reorder C/M/Y/K as needed.
-    if (getChannelCountFromIccSignature(signature) === 4) return "CMYK";
+    // Treat 4-7 channel ICC profiles as CMYK-compatible for CMYK source images.
+    const channelCount = getChannelCountFromIccSignature(signature);
+    if (channelCount !== null && channelCount >= 4 && channelCount <= 7) {
+      return "CMYK";
+    }
   }
 
   return inferColorModelFromLabel(profile.label);

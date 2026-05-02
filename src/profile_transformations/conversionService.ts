@@ -1,5 +1,6 @@
 import { lcmsReady } from "./lcmsSingleton";
-import { CMYKtoLAB, LABtoRGB, RGBtoLAB } from "./profileTransformations";
+import { CMYKtoLAB, LABtoRGB, ProfileInputToLAB, RGBtoLAB } from "./profileTransformations";
+import { getIccInputChannelCount } from "./channelMapping";
 
 export type ConversionOutputFormat = "png";
 
@@ -255,6 +256,35 @@ const extractCmyk8 = (image: ConversionImageAsset): Uint8Array => {
     return cmyk;
   }
 
+  if (image.mapping === null) {
+    if (pixelCount <= 0) {
+      throw new Error("Invalid image dimensions for CMYK extraction");
+    }
+
+    if (image.data.length % pixelCount !== 0) {
+      throw new Error(
+        `Invalid raw image buffer length ${image.data.length} for ${pixelCount} pixels.`,
+      );
+    }
+
+    const channelsPerPixel = image.data.length / pixelCount;
+    if (channelsPerPixel >= 4 && channelsPerPixel <= 7) {
+      const cmyk = new Uint8Array(pixelCount * 4);
+      for (let p = 0; p < pixelCount; p++) {
+        const srcBase = p * channelsPerPixel;
+        const dstBase = p * 4;
+        // Fallback for multichannel images without explicit mapping:
+        // assume first 4 channels are the process C/M/Y/K channels.
+        cmyk[dstBase] = image.data[srcBase];
+        cmyk[dstBase + 1] = image.data[srcBase + 1];
+        cmyk[dstBase + 2] = image.data[srcBase + 2];
+        cmyk[dstBase + 3] = image.data[srcBase + 3];
+      }
+
+      return cmyk;
+    }
+  }
+
   throw new Error(
     `CMYK conversion requires CMYK/CMYKA mapping, got ${image.mapping ?? "null"}`,
   );
@@ -276,16 +306,37 @@ export const convertImageAssetWithProfile = async (
     throw new Error(`Unsupported output format: ${outputFormat}`);
   }
 
-  const cmyk8 = extractCmyk8(imageAsset); //not sure if we need this ok. later perform channel mapping here
+  const pixelCount = imageAsset.width * imageAsset.height;
+  const profileInputChannels = getIccInputChannelCount(cmykProfileBytes);
+  if (!profileInputChannels) {
+    throw new Error("Could not determine selected profile input channel count.");
+  }
+
+  const imageChannelsPerPixel = pixelCount > 0 ? imageAsset.data.length / pixelCount : 0;
   let lab: Uint16Array;
 
   try {
-    //later depending on what we have we perform channel mapping or use other functions e.g. rgbtolab etc
-    lab = CMYKtoLAB(u8to16(cmyk8), cmykProfileBytes);
+    // If the image is already multichannel and matches the selected profile channel count,
+    // run it directly through that profile as softproof input.
+    if (
+      imageAsset.mapping === null &&
+      imageChannelsPerPixel === profileInputChannels &&
+      imageChannelsPerPixel >= 4 &&
+      imageChannelsPerPixel <= 7
+    ) {
+      lab = ProfileInputToLAB(
+        u8to16(imageAsset.data),
+        cmykProfileBytes,
+        imageChannelsPerPixel,
+      );
+    } else {
+      const cmyk8 = extractCmyk8(imageAsset);
+      lab = CMYKtoLAB(u8to16(cmyk8), cmykProfileBytes);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `CMYK to Lab failed (mapping=${imageAsset.mapping ?? "null"}, pixels=${imageAsset.width * imageAsset.height}, cmykBytes=${cmyk8.length}): ${message}`,
+      `CMYK/profile input to Lab failed (mapping=${imageAsset.mapping ?? "null"}, pixels=${imageAsset.width * imageAsset.height}, imageChannels=${imageChannelsPerPixel}, profileChannels=${profileInputChannels}): ${message}`,
     );
   }
 
