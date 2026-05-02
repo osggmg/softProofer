@@ -1,4 +1,4 @@
-import type { ImageObject } from "../components/MainPage";
+import type { ICCProfile, ImageObject } from "../types/types";
 
 export type ColorModel = "CMYK" | "RGB";
 export const readFileFromPublic = async (path: string): Promise<Uint8Array> => {
@@ -36,7 +36,37 @@ export const getImageColorModel = (image: ImageObject | null): ColorModel | null
 export const inferColorModelFromLabel = (label: string): ColorModel | null => {
   const normalized = label.toUpperCase();
   if (normalized.includes("CMYK")) return "CMYK";
+
+  const hasCmykPermutation = normalized
+    .split(/[^A-Z]+/)
+    .some(
+      (token) =>
+        token.length === 4 &&
+        ["C", "M", "Y", "K"].every((channel) => token.includes(channel)),
+    );
+
+  if (hasCmykPermutation) {
+    return "CMYK";
+  }
+
   if (normalized.includes("RGB") || normalized.includes("SRGB")) return "RGB";
+  return null;
+};
+
+const getChannelCountFromIccSignature = (signature: string): number | null => {
+  if (signature === "RGB") return 3;
+  if (signature === "CMYK") return 4;
+
+  const genericColorSpaceMatch = signature.match(/^([1-9A-F])CLR$/);
+  if (genericColorSpaceMatch) {
+    return parseInt(genericColorSpaceMatch[1], 16);
+  }
+
+  const multiChannelMatch = signature.match(/^MCH([1-9A-F])$/);
+  if (multiChannelMatch) {
+    return parseInt(multiChannelMatch[1], 16);
+  }
+
   return null;
 };
 
@@ -47,8 +77,10 @@ export const getProfileColorModel = (profile: ICCProfile): ColorModel | null => 
       .trim()
       .toUpperCase();
 
-    if (signature === "CMYK") return "CMYK";
     if (signature === "RGB") return "RGB";
+
+    // Treat any 4-channel ICC profile as CMYK-compatible so channel mapping can reorder C/M/Y/K as needed.
+    if (getChannelCountFromIccSignature(signature) === 4) return "CMYK";
   }
 
   return inferColorModelFromLabel(profile.label);
