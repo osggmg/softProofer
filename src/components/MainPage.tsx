@@ -10,6 +10,7 @@ import { ImageSelector } from "./ImageSelector";
 import type {
   ConvertedPixelDataBySide,
   ICCProfile,
+  ImageObject,
   PipetteValue,
 } from "../types/types";
 import type {
