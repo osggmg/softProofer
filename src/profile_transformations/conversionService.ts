@@ -29,7 +29,7 @@ export interface ConversionImageAsset {
 const LAB_L_SCALE = 100.0 / 65535.0;
 const LAB_AB_SCALE = 255.0 / 65535.0;
 
-const TOLERANCE_DELTA = 0.5;
+const TOLERANCE_DELTA = 1;
 
 const deltaE76Squared = (
   l1: number,

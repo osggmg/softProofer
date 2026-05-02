@@ -7,7 +7,6 @@ import {
 } from "./channelMapping.ts";
 import {
   TYPE_RGB_8,
-  INTENT_RELATIVE_COLORIMETRIC,
   TYPE_Lab_16,
   INTENT_ABSOLUTE_COLORIMETRIC,
 } from "lcms-wasm";
