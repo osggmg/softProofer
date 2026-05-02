@@ -78,6 +78,7 @@ export const MainPage = () => {
   const [isConvertingRight, setIsConvertingRight] = useState(false);
 
   const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
+  const [heatmapEnabled, setHeatmapEnabled] = useState(false);
   const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
 
   const requestCounterRef = useRef(0);
@@ -565,33 +566,43 @@ export const MainPage = () => {
                   <ImageCompare
                     selectedImageLeftUrl={convertedImageLeftUrl}
                     selectedImageRightUrl={convertedImageRightUrl}
+                    showHeatmap={heatmapEnabled}
                     pixelDataRef={pixelDataRef}
                     onPipetteChange={setPipetteValue}
                   />
-                  <Checkbox
-                    paddingTop={5}
-                    checked={gamutWarningEnabled}
-                    onCheckedChange={(details) => {
-                      const nextGamutWarningEnabled = details.checked === true;
-                      setGamutWarningEnabled(nextGamutWarningEnabled);
-                      triggerConversionForSide(
-                        "left",
-                        selectedImageIdLeft,
-                        activeSelectedICCProfileNameLeft,
-                        selectedMonitorProfileName,
-                        nextGamutWarningEnabled,
-                      );
-                      triggerConversionForSide(
-                        "right",
-                        selectedImageIdRight,
-                        activeSelectedICCProfileNameRight,
-                        selectedMonitorProfileName,
-                        nextGamutWarningEnabled,
-                      );
-                    }}
-                  >
-                    Enable gamut warning
-                  </Checkbox>
+                  <Flex gap={6} paddingTop={5}>
+                    <Checkbox
+                      checked={gamutWarningEnabled}
+                      onCheckedChange={(details) => {
+                        const nextGamutWarningEnabled = details.checked === true;
+                        setGamutWarningEnabled(nextGamutWarningEnabled);
+                        triggerConversionForSide(
+                          "left",
+                          selectedImageIdLeft,
+                          activeSelectedICCProfileNameLeft,
+                          selectedMonitorProfileName,
+                          nextGamutWarningEnabled,
+                        );
+                        triggerConversionForSide(
+                          "right",
+                          selectedImageIdRight,
+                          activeSelectedICCProfileNameRight,
+                          selectedMonitorProfileName,
+                          nextGamutWarningEnabled,
+                        );
+                      }}
+                    >
+                      Enable gamut warning
+                    </Checkbox>
+                    <Checkbox
+                      checked={heatmapEnabled}
+                      onCheckedChange={(details) => {
+                        setHeatmapEnabled(details.checked === true);
+                      }}
+                    >
+                      Show Lab difference heatmap
+                    </Checkbox>
+                  </Flex>
                 </Flex>
               ) : (
                 <Text color="gray.500" mt="2">
