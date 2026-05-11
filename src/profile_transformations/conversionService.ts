@@ -1,6 +1,6 @@
 import { lcmsReady } from "./lcmsSingleton";
 import { CMYKtoLAB, LABtoRGB, ProfileInputToLAB, RGBtoLAB } from "./profileTransformations";
-import { getIccInputChannelCount } from "./channelMapping";
+import { getCmykSlotMapFromClrt, getIccInputChannelCount } from "./channelMapping";
 
 export type ConversionOutputFormat = "png";
 
@@ -224,6 +224,34 @@ function u8to16(src: Uint8Array): Uint16Array {
   return dst;
 }
 
+const invert7cNonCmykChannels = (
+  data: Uint8Array,
+  cmykSlots: [number, number, number, number],
+): Uint8Array => {
+  if (data.length % 7 !== 0) {
+    throw new Error(`Invalid 7-channel buffer length: ${data.length}`);
+  }
+
+  const output = new Uint8Array(data.length);
+  output.set(data);
+
+  for (let base = 0; base < output.length; base += 7) {
+    for (let channelIndex = 0; channelIndex < 7; channelIndex++) {
+      const isCmykSlot =
+        channelIndex === cmykSlots[0] ||
+        channelIndex === cmykSlots[1] ||
+        channelIndex === cmykSlots[2] ||
+        channelIndex === cmykSlots[3];
+
+      if (!isCmykSlot) {
+        output[base + channelIndex] = 255 - output[base + channelIndex];
+      }
+    }
+  }
+
+  return output;
+};
+
 const extractCmyk8 = (image: ConversionImageAsset): Uint8Array => {
   const pixelCount = image.width * image.height;
 
@@ -324,8 +352,27 @@ export const convertImageAssetWithProfile = async (
       imageChannelsPerPixel >= 4 &&
       imageChannelsPerPixel <= 7
     ) {
+      let profileInput = imageAsset.data;
+
+      if (imageChannelsPerPixel === 7 && profileInputChannels === 7) {
+        const cmykSlots = getCmykSlotMapFromClrt(cmykProfileBytes);
+
+        if (cmykSlots) {
+          profileInput = invert7cNonCmykChannels(imageAsset.data, cmykSlots);
+          console.log(
+            `[conversionService] inverted non-CMYK channels for 7C image/profile using clrt slots C->${cmykSlots[0]}, M->${cmykSlots[1]}, Y->${cmykSlots[2]}, K->${cmykSlots[3]}`,
+          );
+        } else {
+          // Fallback assumption: first 4 channels are CMYK, remaining 3 are spot/multichannel extras.
+          profileInput = invert7cNonCmykChannels(imageAsset.data, [0, 1, 2, 3]);
+          console.log(
+            "[conversionService] clrt CMYK slot map missing for 7C profile; assumed CMYK slots [0,1,2,3] and inverted channels [4,5,6]",
+          );
+        }
+      }
+
       lab = ProfileInputToLAB(
-        u8to16(imageAsset.data),
+        u8to16(profileInput),
         cmykProfileBytes,
         imageChannelsPerPixel,
       );
