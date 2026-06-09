@@ -93,3 +93,8 @@ export const Color14Space = 0x45434C52;
 export const Color15Space = 0x46434C52;
 
 export const LuvKColorSpace = 0x4C75764B;
+
+
+export const NO_MONITOR_PROFILE_VALUE = "No monitor profile (optional)";
+
+export const emptyMonitorProfileValue = { label: NO_MONITOR_PROFILE_VALUE };

@@ -1,46 +1,31 @@
-import { Box, Flex, Heading, Text } from "@chakra-ui/react";
+import { Flex, Heading, Text } from "@chakra-ui/react";
 import { Checkbox } from "./../components/ui/checkbox";
 import { ICCProfileUploader } from "./ICCProfileUploader";
 import { ICCProfileSelector } from "./ICCProfileSelector";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import ImageCompare from "./ImageCompare";
 import { ImageUploader } from "./ImageUploader";
 import { decodeImage } from "../profile_transformations/imageMagick";
 import { ImageSelector } from "./ImageSelector";
 import type {
-  ConvertedPixelDataBySide,
   ICCProfile,
   ImageObject,
   PipetteValue,
 } from "../types/types";
-import type {
-  ConvertImageWorkerMessage,
-  ConvertImageWorkerRequest,
-} from "../profile_transformations/conversionWorkerMessages";
-import {
-  cardboard_brown_HP_C500_Dark_Paper_Tint,
-  eciCMYK_v2_basic_profile,
-} from "../default_profiles_and_images/default_profiles/default_cmyk_profiles";
 import { readDefaultImages } from "../default_profiles_and_images/default_profiles_and_images_utils";
 import styled from "styled-components";
 import Logo from "./ui/Logo";
-import { getImageColorModel, getProfileColorModel } from "../utils/utils";
-
-const defaultICCProfiles: ICCProfile[] = [
-  { label: "eciCMYK_v2_basic_profile", bytes: eciCMYK_v2_basic_profile },
-  {
-    label: "cardboard_brown_HP_C500_Dark_Paper_Tint",
-    bytes: cardboard_brown_HP_C500_Dark_Paper_Tint,
-  },
-];
+import {
+  NO_MONITOR_PROFILE_VALUE,
+} from "../utils/constants";
+import { useMainPageDerived } from "./useMainPageDerived";
+import { defaultICCProfiles } from '../default_profiles_and_images/default_profiles/default_cmyk_profiles';
+import { PipetteContainer } from './PipetteContainer';
+import { useConversionWorker } from "../profile_transformations/useConversionWorker.ts";
 
 const defaultImages: ImageObject[] = await readDefaultImages();
-const NO_MONITOR_PROFILE_VALUE = "No monitor profile (optional)";
-
-const emptyMonitorProfileValue = { label: NO_MONITOR_PROFILE_VALUE };
 
 export const MainPage = () => {
-  //APP STATE
 
   const [selectedICCProfileNameLeft, setSelectedICCProfileNameLeft] =
     useState<string>("");
@@ -66,95 +51,26 @@ export const MainPage = () => {
   const [loadedImages, setLoadedImages] =
     useState<ImageObject[]>(defaultImages);
 
-  const [convertedImageLeftUrl, setConvertedImageLeftUrl] =
-    useState<string>("");
-  const [convertedImageRightUrl, setConvertedImageRightUrl] =
-    useState<string>("");
-
-  const [conversionErrorLeft, setConversionErrorLeft] = useState<string>("");
-  const [conversionErrorRight, setConversionErrorRight] = useState<string>("");
-
-  const [isConvertingLeft, setIsConvertingLeft] = useState(false);
-  const [isConvertingRight, setIsConvertingRight] = useState(false);
-
   const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
   const [heatmapEnabled, setHeatmapEnabled] = useState(false);
   const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
 
-  const requestCounterRef = useRef(0);
-  const activeRequestIdLeftRef = useRef(0);
-  const activeRequestIdRightRef = useRef(0);
-  const requestTargetRef = useRef<Map<number, "left" | "right">>(new Map());
-  const pixelDataRef = useRef<ConvertedPixelDataBySide>({
-    left: null,
-    right: null,
+  //this is a hook that wraps useMemo around all used state stuff
+  const {
+    availableICCProfilesLeft,
+    availableICCProfilesRight,
+    loadedMonitorProfiles,
+    activeSelectedICCProfileNameLeft,
+    activeSelectedICCProfileNameRight,
+  } = useMainPageDerived({
+    loadedImages,
+    selectedImageIdLeft,
+    selectedImageIdRight,
+    availableICCProfiles,
+    availableMonitorProfiles,
+    selectedICCProfileNameLeft,
+    selectedICCProfileNameRight,
   });
-  //ref where the worker lives, create once on app start
-  const conversionWorkerRef = useRef<Worker | null>(null);
-
-  //useMemos
-  const loadedMonitorProfiles = useMemo(
-    () => [emptyMonitorProfileValue, ...availableMonitorProfiles],
-    [availableMonitorProfiles],
-  );
-
-  const selectedImageLeft = useMemo(
-    () => loadedImages.find((img) => img.id === selectedImageIdLeft) ?? null,
-    [loadedImages, selectedImageIdLeft],
-  );
-
-  const selectedImageRight = useMemo(
-    () => loadedImages.find((img) => img.id === selectedImageIdRight) ?? null,
-    [loadedImages, selectedImageIdRight],
-  );
-
-  const selectedImageColorModelLeft = useMemo(
-    () => getImageColorModel(selectedImageLeft),
-    [selectedImageLeft],
-  );
-
-  const selectedImageColorModelRight = useMemo(
-    () => getImageColorModel(selectedImageRight),
-    [selectedImageRight],
-  );
-
-  const availableICCProfilesLeft = useMemo(
-    () =>
-      availableICCProfiles.filter(
-        (profile) =>
-          getProfileColorModel(profile) === selectedImageColorModelLeft,
-      ),
-    [availableICCProfiles, selectedImageColorModelLeft],
-  );
-
-  const availableICCProfilesRight = useMemo(
-    () =>
-      availableICCProfiles.filter(
-        (profile) =>
-          getProfileColorModel(profile) === selectedImageColorModelRight,
-      ),
-    [availableICCProfiles, selectedImageColorModelRight],
-  );
-
-  const activeSelectedICCProfileNameLeft = useMemo(
-    () =>
-      availableICCProfilesLeft.some(
-        (profile) => profile.label === selectedICCProfileNameLeft,
-      )
-        ? selectedICCProfileNameLeft
-        : "",
-    [availableICCProfilesLeft, selectedICCProfileNameLeft],
-  );
-
-  const activeSelectedICCProfileNameRight = useMemo(
-    () =>
-      availableICCProfilesRight.some(
-        (profile) => profile.label === selectedICCProfileNameRight,
-      )
-        ? selectedICCProfileNameRight
-        : "",
-    [availableICCProfilesRight, selectedICCProfileNameRight],
-  );
 
   const areBothImagesSelected = Boolean(
     selectedImageIdLeft && selectedImageIdRight,
@@ -179,183 +95,22 @@ export const MainPage = () => {
     });
   };
 
-  function clearSideResult(side: "left" | "right") {
-    pixelDataRef.current[side] = null;
-    if (side === "left") {
-      setConvertedImageLeftUrl((prevUrl) => {
-        if (prevUrl) URL.revokeObjectURL(prevUrl);
-        return "";
-      });
-
-      setConversionErrorLeft("");
-      setIsConvertingLeft(false);
-      return;
-    }
-
-    setConvertedImageRightUrl((prevUrl) => {
-      if (prevUrl) URL.revokeObjectURL(prevUrl);
-      return "";
-    });
-
-    setConversionErrorRight("");
-    setIsConvertingRight(false);
-  }
-
-  const triggerConversionForSide = (
-    side: "left" | "right",
-    imageId: string | null,
-    cmykProfileName: string,
-    monitorProfileName: string = selectedMonitorProfileName,
-    nextGamutWarningEnabled: boolean = gamutWarningEnabled,
-  ) => {
-    const selectedImage =
-      loadedImages.find((img) => img.id === imageId) ?? null;
-    const selectedICCProfile =
-      availableICCProfiles.find((p) => p.label === cmykProfileName) ?? null;
-    const selectedMonitorProfile =
-      monitorProfileName === NO_MONITOR_PROFILE_VALUE
-        ? null
-        : (availableMonitorProfiles.find(
-            (p) => p.label === monitorProfileName,
-          ) ?? null);
-
-    if (!selectedImage || !selectedICCProfile?.bytes) {
-      clearSideResult(side);
-      return;
-    }
-
-    requestCounterRef.current += 1;
-    const requestId = requestCounterRef.current;
-    requestTargetRef.current.set(requestId, side);
-
-    if (side === "left") {
-      activeRequestIdLeftRef.current = requestId;
-      setIsConvertingLeft(true);
-      setConversionErrorLeft("");
-    } else {
-      activeRequestIdRightRef.current = requestId;
-      setIsConvertingRight(true);
-      setConversionErrorRight("");
-    }
-
-    const request: ConvertImageWorkerRequest = {
-      type: "convert",
-      requestId,
-      imageAsset: {
-        width: selectedImage.width,
-        height: selectedImage.height,
-        data: selectedImage.data,
-        mapping: selectedImage.mapping,
-      },
-      cmykProfileBytes: selectedICCProfile.bytes,
-      rgbProfileBytes: selectedMonitorProfile?.bytes ?? null,
-      options: {
-        outputFormat: "png",
-        preserveAlpha: false,
-        gamutWarningEnabled: nextGamutWarningEnabled,
-      },
-    };
-
-    conversionWorkerRef.current?.postMessage(request);
-  };
-
-  //worker main useEffect
-  useEffect(() => {
-    const worker = new Worker(
-      new URL(
-        "../profile_transformations/conversion.worker.ts",
-        import.meta.url,
-      ),
-      { type: "module" },
-    );
-    conversionWorkerRef.current = worker;
-
-    worker.onerror = (e) => {
-      console.error("Worker uncaught error:", e);
-      setConversionErrorLeft(`Worker error: ${e.message}`);
-      setConversionErrorRight(`Worker error: ${e.message}`);
-      setIsConvertingLeft(false);
-      setIsConvertingRight(false);
-    };
-
-    const onWorkerMessage = (
-      event: MessageEvent<ConvertImageWorkerMessage>,
-    ) => {
-      const message = event.data;
-      console.log(
-        "[worker reply] requestId:",
-        message.requestId,
-        "type:",
-        message.type,
-      );
-
-      const target = requestTargetRef.current.get(message.requestId);
-      if (!target) return;
-
-      if (
-        target === "left" &&
-        message.requestId !== activeRequestIdLeftRef.current
-      ) {
-        return;
-      }
-
-      if (
-        target === "right" &&
-        message.requestId !== activeRequestIdRightRef.current
-      ) {
-        return;
-      }
-
-      requestTargetRef.current.delete(message.requestId);
-
-      if (message.type === "error") {
-        console.error("Worker conversion failed:", message.message);
-        if (target === "left") {
-          setConversionErrorLeft(message.message);
-          setIsConvertingLeft(false);
-        } else {
-          setConversionErrorRight(message.message);
-          setIsConvertingRight(false);
-        }
-        return;
-      }
-
-      console.log("[worker success] lab length:", message.lab.length);
-      pixelDataRef.current[target] = {
-        rgb: message.rgb,
-        lab: message.lab,
-        width: message.width,
-        height: message.height,
-      };
-      const nextUrl = URL.createObjectURL(message.blob);
-
-      if (target === "left") {
-        setConversionErrorLeft("");
-        setIsConvertingLeft(false);
-
-        setConvertedImageLeftUrl((prevUrl) => {
-          if (prevUrl) URL.revokeObjectURL(prevUrl);
-          return nextUrl;
-        });
-      } else {
-        setConversionErrorRight("");
-        setIsConvertingRight(false);
-
-        setConvertedImageRightUrl((prevUrl) => {
-          if (prevUrl) URL.revokeObjectURL(prevUrl);
-          return nextUrl;
-        });
-      }
-    };
-
-    worker.addEventListener("message", onWorkerMessage);
-
-    return () => {
-      worker.removeEventListener("message", onWorkerMessage);
-      worker.terminate();
-      conversionWorkerRef.current = null;
-    };
-  }, []);
+  const {
+    convertedImageLeftUrl,
+    convertedImageRightUrl,
+    conversionErrorLeft,
+    conversionErrorRight,
+    isConvertingLeft,
+    isConvertingRight,
+    pixelDataRef,
+    triggerConversionForSide,
+  } = useConversionWorker({
+    loadedImages,
+    availableICCProfiles,
+    availableMonitorProfiles,
+    selectedMonitorProfileName,
+    gamutWarningEnabled,
+  });
 
   return (
     <>
@@ -512,51 +267,7 @@ export const MainPage = () => {
                   />
                 </Flex>
               </Flex>
-              <Box mt={6} p={3}>
-                <Flex gap={6}>
-                  <Flex direction="column" gap={2} minW="120px">
-                    <Flex align="center" gap={2} alignItems={"flex-end"}>
-                      <PipetteLabel>L*:</PipetteLabel>
-                      <PipetteValueBox>
-                        {pipetteValue ? pipetteValue.lab[0].toFixed(2) : ""}
-                      </PipetteValueBox>
-                    </Flex>
-                    <Flex align="center" gap={2} alignItems={"flex-end"}>
-                      <PipetteLabel>a*:</PipetteLabel>
-                      <PipetteValueBox>
-                        {pipetteValue ? pipetteValue.lab[1].toFixed(2) : ""}
-                      </PipetteValueBox>
-                    </Flex>
-                    <Flex align="center" gap={2} alignItems={"flex-end"}>
-                      <PipetteLabel>b*:</PipetteLabel>
-                      <PipetteValueBox>
-                        {pipetteValue ? pipetteValue.lab[2].toFixed(2) : ""}
-                      </PipetteValueBox>
-                    </Flex>
-                  </Flex>
-
-                  <Flex direction="column" gap={2} minW="120px">
-                    <Flex align="center" gap={2} alignItems={"flex-end"}>
-                      <PipetteLabel>R:</PipetteLabel>
-                      <PipetteValueBox>
-                        {pipetteValue ? String(pipetteValue.rgb[0]) : ""}
-                      </PipetteValueBox>
-                    </Flex>
-                    <Flex align="center" gap={2} alignItems={"flex-end"}>
-                      <PipetteLabel>G:</PipetteLabel>
-                      <PipetteValueBox>
-                        {pipetteValue ? String(pipetteValue.rgb[1]) : ""}
-                      </PipetteValueBox>
-                    </Flex>
-                    <Flex align="center" gap={2} alignItems={"flex-end"}>
-                      <PipetteLabel>B:</PipetteLabel>
-                      <PipetteValueBox>
-                        {pipetteValue ? String(pipetteValue.rgb[2]) : ""}
-                      </PipetteValueBox>
-                    </Flex>
-                  </Flex>
-                </Flex>
-              </Box>
+              <PipetteContainer pipetteValue={pipetteValue}/>
             </Flex>
           </Section>
           <Section $width={"1230px"} $marginRight="50px">
@@ -648,24 +359,4 @@ const Section = styled.div<{
   gap: 4px;
   background-color: #f2f2f2;
   border-radius: 10px;
-`;
-
-const PipetteValueBox = styled.div`
-  min-width: 56px;
-  height: 24px;
-  padding: 2px 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background-color: #eceff2;
-  border: 1px solid #d0d7de;
-  border-radius: 7px;
-  font-size: 13px;
-  color: #4b5563;
-`;
-
-const PipetteLabel = styled(Text)`
-  width: 28px;
-  text-align: left;
-  font-weight: 600;
 `;
