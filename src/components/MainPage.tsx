@@ -271,7 +271,7 @@ export const MainPage = () => {
             </Flex>
           </Section>
           <Section $width={"1230px"} $marginRight="50px">
-            <div style={{ alignSelf: "center" }}>
+            <Flex flexDirection="column" alignSelf="center" alignItems="center">
               {convertedImageLeftUrl && convertedImageRightUrl ? (
                 <Flex direction="column" alignItems="center">
                   <ImageCompare
@@ -336,7 +336,7 @@ export const MainPage = () => {
                   Right conversion failed: {conversionErrorRight}
                 </Text>
               ) : null}
-            </div>
+            </Flex>
           </Section>
         </Flex>
       </Flex>
