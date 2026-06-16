@@ -399,7 +399,6 @@ export const convertImageAssetWithProfile = async (
   }
 
   const mask = createGamutCheckMask(rgb, lab, TOLERANCE_DELTA, rgbProfileBytes);
-  console.log(mask)
 
   if (gamutWarningEnabled) {
     const [wr, wg, wb] = options.gamutWarningColor ?? [255, 0, 255];

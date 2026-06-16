@@ -66,7 +66,7 @@ const toLab = (data: Uint16Array, base: number): [number, number, number] => {
 const distanceToHeatColor = (normalized: number): [number, number, number] => {
   const t = clamp(normalized, 0, 1);
 
-  // Yellow -> Red ramp.
+  // Yellow -> Red
   const r = 255;
   const g = Math.round(255 * (1 - t));
   const b = 0;
@@ -134,8 +134,6 @@ const createHeatmapUrl = (left: PixelData, right: PixelData): string => {
 
 
 export default function ImageCompare(props: ImageCompareProps) {
-  console.log("Rendering ImageCompare with URLs:", props.selectedImageLeftUrl, props.selectedImageRightUrl);
-
   const [sliderPosition, setSliderPosition] = useState(0.5);
   const heatmapUrl = useMemo(() => {
     if (!props.showHeatmap) {

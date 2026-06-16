@@ -108,8 +108,6 @@ const findClrtTag = (iccBytes: Uint8Array): { offset: number; size: number } | n
   const tagCount = readUint32BE(iccBytes, ICC_TAG_TABLE_OFFSET);
   let cursor = ICC_TAG_TABLE_OFFSET + 4;
 
-  console.log(`${LOG_PREFIX} scanning tag table (${tagCount} tags)`);
-
   for (let i = 0; i < tagCount; i++) {
     if (cursor + ICC_TAG_ENTRY_SIZE > iccBytes.length) {
       console.log(`${LOG_PREFIX} tag table ended unexpectedly at entry ${i}`);

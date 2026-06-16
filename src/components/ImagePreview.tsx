@@ -2,11 +2,8 @@ import { Carousel, IconButton, Box } from "@chakra-ui/react"
 import { LuChevronLeft, LuChevronRight } from "react-icons/lu"
 
 
-
-
 export const ImagePreview = () => {
-
-
+    
 const items = Array.from({ length: 5 })
 
 return (

@@ -60,9 +60,6 @@ const createCmykToLabTransform = (cmykProfileHandle: number) => {
     0,
   );
 
-  console.log(
-    `[CMYKtoLAB] profile-derived input format=0x${inputFormat.toString(16)}`,
-  );
 
   const transform = lcms.createTransform(
     cmykProfileHandle,
@@ -111,9 +108,6 @@ const profileInputToLab = (
   const pixelCount = input.length / channelsPerPixel;
 
   try {
-    console.log(
-      `[ProfileInputToLab] transforming ${pixelCount} pixels using ${channelsPerPixel} channels`,
-    );
     const output = new Uint16Array(pixelCount * 3);
 
     for (
