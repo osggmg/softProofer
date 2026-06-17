@@ -92,3 +92,10 @@ export const getProfileColorModel = (profile: ICCProfile): ColorModel | null => 
 
   return inferColorModelFromLabel(profile.label);
 };
+
+export const labToIcc16Bit = (l: number, a: number, b: number): Uint16Array => {
+  const L_16bit = Math.round((l / 100) * 65535);
+  const a_16bit = Math.round(32768 + a * 256);
+  const b_16bit = Math.round(32768 + b * 256);
+  return new Uint16Array([L_16bit, a_16bit, b_16bit]);
+};

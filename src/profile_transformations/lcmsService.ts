@@ -1,4 +1,4 @@
-import  instantiate  from "lcms-wasm";
+import instantiate from "lcms-wasm";
 import wasmFileURI from "lcms-wasm/dist/lcms.wasm?url";
 
 export type RenderingIntent = 0 | 1 | 2 | 3;
@@ -8,8 +8,21 @@ export class LcmsService {
 
   async init() {
     this.lcms = await instantiate({
-      locateFile: function (name) {
-        return wasmFileURI; //this is needed specifically for vite so the wrapper works
+      locateFile: function () { //this is needed so that vite works with the wasm wrapper AND for vitest to work
+        if (typeof wasmFileURI === "string" && wasmFileURI.startsWith("file://")) {
+          return wasmFileURI;
+        }
+
+        if (
+          typeof process !== "undefined" &&
+          process.versions?.node &&
+          typeof wasmFileURI === "string" &&
+          wasmFileURI.startsWith("/")
+        ) {
+          return `${process.cwd().replace(/\\/g, "/")}${wasmFileURI}`;
+        }
+
+        return wasmFileURI;
       },
     });
   }
