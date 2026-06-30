@@ -9,10 +9,12 @@ export interface ConvertImageOptions {
   preserveAlpha?: boolean;
   gamutWarningEnabled?: boolean;
   gamutWarningColor?: [number, number, number];
+  invert7cNonCmykChannels?: boolean;
 }
 
 export interface ConvertedImageResult {
   blob: Blob;
+  cmyk: Uint8Array | null;
   rgb: Uint8Array;
   lab: Uint16Array;
   mimeType: string;
@@ -329,6 +331,8 @@ export const convertImageAssetWithProfile = async (
   const outputFormat = options.outputFormat ?? "png";
   const preserveAlpha = options.preserveAlpha ?? true;
   const gamutWarningEnabled = options.gamutWarningEnabled ?? false;
+  const invert7cNonCmykChannelsEnabled =
+    options.invert7cNonCmykChannels ?? true;
 
   if (outputFormat !== "png") {
     throw new Error(`Unsupported output format: ${outputFormat}`);
@@ -342,6 +346,7 @@ export const convertImageAssetWithProfile = async (
 
   const imageChannelsPerPixel = pixelCount > 0 ? imageAsset.data.length / pixelCount : 0;
   let lab: Uint16Array;
+  let cmyk: Uint8Array | null = null;
 
   try {
     // If the image is already multichannel and matches the selected profile channel count,
@@ -354,7 +359,11 @@ export const convertImageAssetWithProfile = async (
     ) {
       let profileInput = imageAsset.data;
 
-      if (imageChannelsPerPixel === 7 && profileInputChannels === 7) {
+      if (
+        imageChannelsPerPixel === 7 &&
+        profileInputChannels === 7 &&
+        invert7cNonCmykChannelsEnabled
+      ) {
         const cmykSlots = getCmykSlotMapFromClrt(cmykProfileBytes);
 
         if (cmykSlots) {
@@ -369,6 +378,8 @@ export const convertImageAssetWithProfile = async (
             "[conversionService] clrt CMYK slot map missing for 7C profile; assumed CMYK slots [0,1,2,3] and inverted channels [4,5,6]",
           );
         }
+      } else if (imageChannelsPerPixel === 7 && profileInputChannels === 7) {
+        console.log("[conversionService] 7C non-CMYK channel inversion disabled");
       }
 
       lab = ProfileInputToLAB(
@@ -376,8 +387,10 @@ export const convertImageAssetWithProfile = async (
         cmykProfileBytes,
         imageChannelsPerPixel,
       );
+      cmyk = extractCmyk8(imageAsset);
     } else {
       const cmyk8 = extractCmyk8(imageAsset);
+      cmyk = cmyk8;
       lab = CMYKtoLAB(u8to16(cmyk8), cmykProfileBytes);
     }
   } catch (error) {
@@ -427,6 +440,7 @@ export const convertImageAssetWithProfile = async (
   
   return {
     blob,
+    cmyk,
     rgb,
     lab,
     mimeType: "image/png",

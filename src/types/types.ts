@@ -14,6 +14,7 @@ export interface ImageObject extends DecodedImage {
 }
 
 export interface ConvertedPixelData {
+  cmyk: Uint8Array | null;
   rgb: Uint8Array;
   lab: Uint16Array;
   width: number;
@@ -28,6 +29,7 @@ export interface ConvertedPixelDataBySide {
 export interface PipetteValue {
   x: number;
   y: number;
+  cmyk: [number, number, number, number] | null;
   rgb: [number, number, number];
   lab: [number, number, number];
 }

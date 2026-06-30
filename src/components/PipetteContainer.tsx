@@ -1,15 +1,43 @@
 import { Box, Flex } from '@chakra-ui/react'
+import type { PipetteValue } from "../types/types";
 import styled from 'styled-components';
 
 interface PipetteContainerProps {
-    pipetteValue: any,
+    pipetteValue: PipetteValue | null,
 }
 
 export const PipetteContainer = (props: PipetteContainerProps) => {
     const pipetteValue = props.pipetteValue;
     return (
         <Box mt={6} p={3}>
-            <Flex gap={6}>
+            <Flex gap={6} wrap="wrap">
+                <Flex direction="column" gap={2} minW="120px">
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                        <PipetteLabel>C:</PipetteLabel>
+                        <PipetteValueBox>
+                            {pipetteValue?.cmyk ? String(pipetteValue.cmyk[0]) : ""}
+                        </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                        <PipetteLabel>M:</PipetteLabel>
+                        <PipetteValueBox>
+                            {pipetteValue?.cmyk ? String(pipetteValue.cmyk[1]) : ""}
+                        </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                        <PipetteLabel>Y:</PipetteLabel>
+                        <PipetteValueBox>
+                            {pipetteValue?.cmyk ? String(pipetteValue.cmyk[2]) : ""}
+                        </PipetteValueBox>
+                    </Flex>
+                    <Flex align="center" gap={2} alignItems={"flex-end"}>
+                        <PipetteLabel>K:</PipetteLabel>
+                        <PipetteValueBox>
+                            {pipetteValue?.cmyk ? String(pipetteValue.cmyk[3]) : ""}
+                        </PipetteValueBox>
+                    </Flex>
+                </Flex>
+
                 <Flex direction="column" gap={2} minW="120px">
                     <Flex align="center" gap={2} alignItems={"flex-end"}>
                         <PipetteLabel>L*:</PipetteLabel>

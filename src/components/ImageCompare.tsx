@@ -1,8 +1,10 @@
 import { Box, Flex } from "@chakra-ui/react";
 import { useMemo, useState } from "react";
 import ReactCompareImage from "react-compare-image";
+import type { PipetteValue } from "../types/types";
 
 interface PixelData {
+  cmyk: Uint8Array | null;
   rgb: Uint8Array;
   lab: Uint16Array;
   width: number;
@@ -20,18 +22,69 @@ interface ImageCompareProps {
   onPipetteChange: (value: PipetteValue | null) => void;
 }
 
-interface PipetteValue {
-  x: number;
-  y: number;
-  rgb: [number, number, number];
-  lab: [number, number, number];
-}
-
 const LAB_L_SCALE = 100.0 / 65535.0;
 const LAB_AB_SCALE = 255.0 / 65535.0;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+type RectLike = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+const getRenderedImageRect = (container: HTMLDivElement) => {
+  const images = Array.from(container.querySelectorAll("img"));
+  const candidateRects = images
+    .map((img) => img.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .sort((a, b) => b.width * b.height - a.width * a.height);
+
+  return candidateRects[0] ?? null;
+};
+
+const getFittedRect = (
+  containerRect: DOMRect,
+  sourceWidth: number,
+  sourceHeight: number,
+) => {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return null;
+  }
+
+  const sourceAspect = sourceWidth / sourceHeight;
+  const containerAspect =
+    containerRect.width > 0 && containerRect.height > 0
+      ? containerRect.width / containerRect.height
+      : 0;
+
+  if (!containerAspect) {
+    return null;
+  }
+
+  let width = containerRect.width;
+  let height = containerRect.height;
+
+  if (containerAspect > sourceAspect) {
+    height = containerRect.height;
+    width = height * sourceAspect;
+  } else {
+    width = containerRect.width;
+    height = width / sourceAspect;
+  }
+
+  const left = containerRect.left + (containerRect.width - width) / 2;
+  const top = containerRect.top + (containerRect.height - height) / 2;
+
+  return {
+    left,
+    top,
+    width,
+    height,
+  };
+};
 
 const readPixel = (data: PixelData, x: number, y: number) => {
   const px = clamp(Math.round(x), 0, data.width - 1);
@@ -46,13 +99,22 @@ const readPixel = (data: PixelData, x: number, y: number) => {
     data.rgb[rgbBase + 2],
   ];
 
+  const cmyk: [number, number, number, number] | null = data.cmyk
+    ? [
+        data.cmyk[pixelIndex * 4],
+        data.cmyk[pixelIndex * 4 + 1],
+        data.cmyk[pixelIndex * 4 + 2],
+        data.cmyk[pixelIndex * 4 + 3],
+      ]
+    : null;
+
   const lab: [number, number, number] = [
     data.lab[labBase] * LAB_L_SCALE,
     data.lab[labBase + 1] * LAB_AB_SCALE - 128.0,
     data.lab[labBase + 2] * LAB_AB_SCALE - 128.0,
   ];
 
-  return { px, py, rgb, lab };
+  return { px, py, cmyk, rgb, lab };
 };
 
 const toLab = (data: Uint16Array, base: number): [number, number, number] => {
@@ -168,15 +230,61 @@ export default function ImageCompare(props: ImageCompareProps) {
       return;
     }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
+    const containerRect = event.currentTarget.getBoundingClientRect();
+    if (!containerRect.width || !containerRect.height) {
+      props.onPipetteChange(null);
+      return;
+    }
 
-    const normalizedX = clamp((event.clientX - rect.left) / rect.width, 0, 1);
-    const normalizedY = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+    const referenceData = data.left ?? data.right;
+    if (!referenceData) {
+      props.onPipetteChange(null);
+      return;
+    }
+
+    let fittedRect: RectLike | null = getRenderedImageRect(event.currentTarget);
+
+    if (!fittedRect) {
+      fittedRect = getFittedRect(
+        containerRect,
+        referenceData.width,
+        referenceData.height,
+      );
+    }
+
+    if (!fittedRect) {
+      props.onPipetteChange(null);
+      return;
+    }
+
+    const isInsideImage =
+      event.clientX >= fittedRect.left &&
+      event.clientX <= fittedRect.left + fittedRect.width &&
+      event.clientY >= fittedRect.top &&
+      event.clientY <= fittedRect.top + fittedRect.height;
+
+    if (!isInsideImage) {
+      props.onPipetteChange(null);
+      return;
+    }
+
+    const normalizedX = clamp(
+      (event.clientX - fittedRect.left) / fittedRect.width,
+      0,
+      1,
+    );
+    const normalizedY = clamp(
+      (event.clientY - fittedRect.top) / fittedRect.height,
+      0,
+      1,
+    );
     const side: "left" | "right" =
       normalizedX <= sliderPosition ? "left" : "right";
     const activeData = data[side];
-    if (!activeData) return;
+    if (!activeData) {
+      props.onPipetteChange(null);
+      return;
+    }
 
     const x = normalizedX * (activeData.width - 1);
     const y = normalizedY * (activeData.height - 1);
@@ -185,6 +293,7 @@ export default function ImageCompare(props: ImageCompareProps) {
     props.onPipetteChange({
       x: sampled.px,
       y: sampled.py,
+      cmyk: sampled.cmyk,
       rgb: sampled.rgb,
       lab: sampled.lab,
     });

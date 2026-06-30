@@ -20,8 +20,11 @@ import {
 } from "../utils/constants";
 import { useMainPageDerived } from "./useMainPageDerived";
 import { defaultICCProfiles } from '../default_profiles_and_images/default_profiles/default_cmyk_profiles';
+import { defaultRGBICCProfiles } from '../default_profiles_and_images/default_profiles/default_rgb_profiles';
 import { PipetteContainer } from './PipetteContainer';
 import { useConversionWorker } from "../profile_transformations/useConversionWorker.ts";
+
+const defaultAllICCProfiles = [...defaultICCProfiles, ...defaultRGBICCProfiles];
 
 const defaultImages: ImageObject[] = await readDefaultImages();
 
@@ -36,7 +39,7 @@ export const MainPage = () => {
     useState<string>(NO_MONITOR_PROFILE_VALUE);
 
   const [availableICCProfiles, setAvailableICCProfiles] =
-    useState(defaultICCProfiles);
+    useState(defaultAllICCProfiles);
   const [availableMonitorProfiles, setAvailableMonitorProfiles] = useState<
     ICCProfile[]
   >([]);
@@ -52,6 +55,7 @@ export const MainPage = () => {
     useState<ImageObject[]>(defaultImages);
 
   const [gamutWarningEnabled, setGamutWarningEnabled] = useState(false);
+  const [invert7cNonCmykChannels, setInvert7cNonCmykChannels] = useState(true);
   const [heatmapEnabled, setHeatmapEnabled] = useState(false);
   const [pipetteValue, setPipetteValue] = useState<PipetteValue | null>(null);
 
@@ -110,6 +114,7 @@ export const MainPage = () => {
     availableMonitorProfiles,
     selectedMonitorProfileName,
     gamutWarningEnabled,
+    invert7cNonCmykChannels,
   });
 
   return (
@@ -304,6 +309,32 @@ export const MainPage = () => {
                       }}
                     >
                       Enable gamut warning
+                    </Checkbox>
+                    <Checkbox
+                      checked={invert7cNonCmykChannels}
+                      onCheckedChange={(details) => {
+                        const nextInvert7cNonCmykChannels =
+                          details.checked === true;
+                        setInvert7cNonCmykChannels(nextInvert7cNonCmykChannels);
+                        triggerConversionForSide(
+                          "left",
+                          selectedImageIdLeft,
+                          activeSelectedICCProfileNameLeft,
+                          selectedMonitorProfileName,
+                          gamutWarningEnabled,
+                          nextInvert7cNonCmykChannels,
+                        );
+                        triggerConversionForSide(
+                          "right",
+                          selectedImageIdRight,
+                          activeSelectedICCProfileNameRight,
+                          selectedMonitorProfileName,
+                          gamutWarningEnabled,
+                          nextInvert7cNonCmykChannels,
+                        );
+                      }}
+                    >
+                      Invert non-CMYK channels (7C)
                     </Checkbox>
                     <Checkbox
                       checked={heatmapEnabled}

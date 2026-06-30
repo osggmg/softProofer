@@ -16,6 +16,7 @@ export interface ConvertImageWorkerSuccess {
   type: "result";
   requestId: number;
   blob: Blob;
+  cmyk: Uint8Array | null;
   rgb: Uint8Array;
   lab: Uint16Array;
   mimeType: string;

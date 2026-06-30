@@ -14,6 +14,7 @@ interface UseConversionWorkerParams {
   availableMonitorProfiles: ICCProfile[];
   selectedMonitorProfileName: string;
   gamutWarningEnabled: boolean;
+  invert7cNonCmykChannels: boolean;
 }
 
 export const useConversionWorker = ({
@@ -22,6 +23,7 @@ export const useConversionWorker = ({
   availableMonitorProfiles,
   selectedMonitorProfileName,
   gamutWarningEnabled,
+  invert7cNonCmykChannels,
 }: UseConversionWorkerParams) => {
   const [convertedImageLeftUrl, setConvertedImageLeftUrl] = useState<string>("");
   const [convertedImageRightUrl, setConvertedImageRightUrl] =
@@ -72,6 +74,7 @@ export const useConversionWorker = ({
     cmykProfileName: string,
     monitorProfileName: string = selectedMonitorProfileName,
     nextGamutWarningEnabled: boolean = gamutWarningEnabled,
+    nextInvert7cNonCmykChannels: boolean = invert7cNonCmykChannels,
   ) => {
     const selectedImage = loadedImages.find((img) => img.id === imageId) ?? null;
     const selectedICCProfile =
@@ -116,6 +119,7 @@ export const useConversionWorker = ({
         outputFormat: "png",
         preserveAlpha: false,
         gamutWarningEnabled: nextGamutWarningEnabled,
+        invert7cNonCmykChannels: nextInvert7cNonCmykChannels,
       },
     };
 
@@ -171,6 +175,7 @@ export const useConversionWorker = ({
       }
 
       pixelDataRef.current[target] = {
+        cmyk: message.cmyk,
         rgb: message.rgb,
         lab: message.lab,
         width: message.width,
